@@ -15,7 +15,8 @@ The codebase has:
 - ✅ Phase 2 COMPLETE: Comprehensive test coverage
 - ✅ Phase 3 COMPLETE: Advanced Mutators (6 mutators)
 - ✅ Phase 4 COMPLETE: Enhanced Reporting
-- 🚧 Phase 5 NEXT: Performance Optimization
+- ⚠️ Phase 5 DEFERRED: Performance Optimization (can be done later)
+- ✅ Phase 6 COMPLETE: Erlang Language Adapter (basic implementation)
 
 ## Phase 1: Core Functionality Fixes ✅ COMPLETE
 
@@ -165,16 +166,17 @@ Create `lib/muex/selector.ex`:
 - Use heuristics to skip equivalent mutations
 - Implement mutation sampling for large codebases
 
-## Phase 6: Erlang Language Adapter
+## Phase 6: Erlang Language Adapter ✅ COMPLETE
 
-### 6.1 Implement Erlang Parser
-Create `lib/muex/language/erlang.ex`:
+### 6.1 Implement Erlang Parser ✅
+✅ Created `lib/muex/language/erlang.ex`:
 - Use `:erl_scan` and `:erl_parse` for parsing Erlang source
 - Implement `parse/1` to convert Erlang to AST
-- Implement `unparse/1` to convert AST back (using `:epp` and `:erl_prettypr`)
+- Implement `unparse/1` using `:erl_prettypr`
 - Implement `compile/2` using `:compile` module
 - Set `file_extensions/0` to return `[".erl"]`
 - Set `test_file_pattern/0` to match Erlang test conventions
+- Registered in Mix task (--language erlang)
 
 ### 6.2 Erlang-Specific Mutators
 Erlang AST structure differs from Elixir. Update existing mutators:

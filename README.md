@@ -7,7 +7,7 @@ Muex evaluates test suite quality by introducing deliberate bugs (mutations) int
 ## Features
 
 - Language-agnostic architecture with pluggable language adapters
-- Built-in support for Elixir (Erlang planned)
+- Built-in support for Elixir and Erlang
 - 6 mutation strategies:
   - Arithmetic operators (+/-, *//)
   - Comparison operators (==, !=, >, <, >=, <=)

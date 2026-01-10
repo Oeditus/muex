@@ -119,7 +119,9 @@ defmodule Mix.Tasks.Muex do
 
   defp get_language_adapter("elixir"), do: Muex.Language.Elixir
   defp get_language_adapter("erlang"), do: Muex.Language.Erlang
-  defp get_language_adapter(other), do: Mix.raise("Unknown language: #{other}")
+
+  defp get_language_adapter(other),
+    do: Mix.raise("Unknown language: #{other}. Use elixir or erlang")
 
   defp get_mutators(nil) do
     [
