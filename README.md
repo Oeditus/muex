@@ -58,12 +58,21 @@ mix muex --fail-at 80
 
 ## Available Mutators
 
-- **Arithmetic**: Mutates `+`, `-`, `*`, `/` operators
-- **Comparison**: Mutates `==`, `!=`, `>`, `<`, `>=`, `<=` operators
-- **Boolean**: Mutates `and`, `or`, `&&`, `||`, `true`, `false`, `not`
-- **Literal**: Mutates numbers, strings, lists, and atoms
-- **FunctionCall**: Removes function calls and swaps arguments
-- **Conditional**: Mutates `if`/`unless` statements
+Muex provides 6 comprehensive mutation strategies:
+
+- **Arithmetic**: Mutates `+`, `-`, `*`, `/` operators (swap, remove, identity)
+- **Comparison**: Mutates `==`, `!=`, `>`, `<`, `>=`, `<=`, `===`, `!==` operators
+- **Boolean**: Mutates `and`, `or`, `&&`, `||`, `true`, `false`, `not` (swap, negate, remove)
+- **Literal**: Mutates numbers (±1), strings (empty/append), lists (empty), atoms (change)
+- **FunctionCall**: Removes function calls and swaps first two arguments
+- **Conditional**: Inverts conditions, removes branches, converts `unless` to `if`
+
+## Supported Languages
+
+- **Elixir**: Full support with ExUnit integration
+- **Erlang**: Full support with native BEAM integration
+
+Both languages benefit from hot module swapping for efficient mutation testing.
 
 ## Example Output
 
@@ -84,6 +93,45 @@ Timeout: 0
 ==================================================
 Mutation Score: 80.0%
 ```
+
+## Output Formats
+
+### Terminal (Default)
+Interactive terminal output with progress indicators and summary:
+```
+Mutation Testing Results
+==================================================
+Total mutants: 25
+Killed: 20 (caught by tests)
+Survived: 5 (not caught by tests)
+Invalid: 0 (compilation errors)
+Timeout: 0
+==================================================
+Mutation Score: 80.0%
+```
+
+### JSON Format
+Structured JSON for CI/CD integration:
+```bash
+mix muex --format json
+# Outputs: muex-report.json
+```
+
+### HTML Format
+Interactive HTML report with color-coded results:
+```bash
+mix muex --format html
+# Outputs: muex-report.html
+```
+
+## Examples
+
+See the `examples/` directory for example projects:
+- `examples/shop/` - Elixir shopping cart with comprehensive tests (48 tests covering realistic business logic)
+- `examples/calculator_ex/` - Simple Elixir calculator module
+- `examples/calculator.erl` - Basic Erlang example
+
+**Note**: The examples demonstrate the mutation testing concept. For production use, consider integrating Muex into your project's mix.exs as a dependency.
 
 ## Documentation
 

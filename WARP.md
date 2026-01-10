@@ -78,7 +78,7 @@ The codebase follows a language-agnostic plugin architecture with clear separati
    - `parse/1` - Converts source code to AST
    - `unparse/1` - Converts AST back to source code
    - `compile/2` - Compiles source and loads into BEAM
-   - Implementations: `Muex.Language.Elixir`, `Muex.Language.Erlang` (planned)
+   - Implementations: `Muex.Language.Elixir`, `Muex.Language.Erlang`
 
 2. **`Muex.Mutator` behaviour** - Defines interface for mutation strategies
    - `mutate/2` - Generates mutations for an AST node
@@ -134,6 +134,27 @@ The codebase follows a language-agnostic plugin architecture with clear separati
 - **Behaviour-based extensibility**: New languages and mutation strategies can be added by implementing behaviours
 - **AST manipulation**: All mutations work at the AST level, enabling language-agnostic processing
 - **Hot module swapping**: Uses BEAM's code reloading to test mutations without restarting the VM
+
+## Example Projects
+
+The `examples/` directory contains demonstration projects:
+
+### Shop Example (`examples/shop/`)
+Elixir shopping cart application demonstrating mutation testing on realistic business logic:
+- **Modules**: `Shop.Product` and `Shop.Cart`
+- **Tests**: 48 comprehensive tests covering:
+  - Arithmetic operations (pricing, discounts, totals)
+  - Comparison operations (stock checks, thresholds)
+  - Boolean logic (availability, validation)
+  - Error handling and edge cases
+- **Usage**: Run from Muex root with `mix muex --files examples/shop/lib`
+- Perfect for learning mutation testing concepts and evaluating test suite quality
+
+### Calculator Example (`examples/calculator.erl`)
+Basic Erlang example demonstrating:
+- Erlang language adapter functionality
+- Simple arithmetic functions
+- Cross-language mutation testing capability
 
 ## Adding New Features
 

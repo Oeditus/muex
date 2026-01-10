@@ -107,7 +107,7 @@ lib/muex/runner.ex
 ### Phase 3 Summary
 ✅ **6 mutators** implemented and tested:
 - Arithmetic, Comparison, Boolean, Literal, FunctionCall, Conditional
-✅ **106 tests** total, all passing
+✅ **113 tests** total, all passing
 ✅ All mutators registered and available via CLI
 
 ## Phase 4: Enhanced Reporting ✅ COMPLETE
