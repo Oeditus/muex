@@ -31,8 +31,8 @@ jobs:
       - name: Run tests
         run: mix test
 
-  quality:
-    name: Code Quality
+  linters:
+    name: Statical Analysis
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -56,6 +56,21 @@ jobs:
         run: mix deps.get
       - name: Run quality checks
         run: mix quality.ci
+
+  quality:
+    name: Quality Gate
+    runs-on: ubuntu-latest
+    needs: [linters, test]
+    if: always()
+    steps:
+      - name: Check all jobs status
+        run: |
+             [ "${{ needs.linters.result }}" != "success" ] || \
+             [ "${{ needs.test.result }}" != "success" ]; then
+            echo "❌ Quality gate failed!"
+            exit 1
+          fi
+          echo "✅ Quality gate passed!"
 
   coverage:
     name: Test Coverage
