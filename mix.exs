@@ -37,6 +37,8 @@ defmodule Muex.MixProject do
 
   defp deps do
     [
+      # production
+      {:jason, "~> 1.4"},
       # dev / test
       {:credo, "~> 1.0", only: [:dev, :test, :ci]},
       {:dialyxir, "~> 1.0", only: [:dev, :test, :ci], runtime: false},

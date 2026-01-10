@@ -48,6 +48,12 @@ mix muex --concurrency 4 --timeout 10000
 
 # Fail if mutation score below threshold
 mix muex --fail-at 80
+
+# Generate JSON report
+mix muex --format json
+
+# Generate HTML report  
+mix muex --format html
 ```
 
 ### Analysis Tools

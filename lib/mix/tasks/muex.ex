@@ -14,6 +14,7 @@ defmodule Mix.Tasks.Muex do
     * `--concurrency` - Number of parallel mutations (default: number of schedulers)
     * `--timeout` - Test timeout in milliseconds (default: 5000)
     * `--fail-at` - Minimum mutation score to pass (default: 0)
+    * `--format` - Output format: terminal, json, html (default: terminal)
 
   ## Examples
 
@@ -28,6 +29,12 @@ defmodule Mix.Tasks.Muex do
 
       # Fail if mutation score below 80%
       mix muex --fail-at 80
+
+      # Generate JSON report
+      mix muex --format json
+
+      # Generate HTML report
+      mix muex --format html
   """
 
   use Mix.Task
@@ -44,7 +51,8 @@ defmodule Mix.Tasks.Muex do
           mutators: :string,
           concurrency: :integer,
           timeout: :integer,
-          fail_at: :integer
+          fail_at: :integer,
+          format: :string
         ]
       )
 
@@ -89,7 +97,9 @@ defmodule Mix.Tasks.Muex do
         end
       end)
 
-    Muex.Reporter.print_summary(results)
+    # Output results based on format
+    format = Keyword.get(opts, :format, "terminal")
+    output_report(results, format)
 
     # Check if we meet the minimum score
     total = length(results)
@@ -136,4 +146,22 @@ defmodule Mix.Tasks.Muex do
   defp get_mutator("function_call"), do: Muex.Mutator.FunctionCall
   defp get_mutator("conditional"), do: Muex.Mutator.Conditional
   defp get_mutator(other), do: Mix.raise("Unknown mutator: #{other}")
+
+  defp output_report(results, "json") do
+    Muex.Reporter.Json.generate(results)
+    Mix.shell().info("JSON report generated: muex-report.json")
+  end
+
+  defp output_report(results, "html") do
+    Muex.Reporter.Html.generate(results)
+    Mix.shell().info("HTML report generated: muex-report.html")
+  end
+
+  defp output_report(results, "terminal") do
+    Muex.Reporter.print_summary(results)
+  end
+
+  defp output_report(_results, other) do
+    Mix.raise("Unknown format: #{other}. Use terminal, json, or html")
+  end
 end
