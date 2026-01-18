@@ -84,8 +84,8 @@ defmodule Muex.MixProject do
     """
     Language-agnostic mutation testing library for Elixir, Erlang, and other BEAM languages.
     Evaluates test suite quality by introducing deliberate bugs into code and verifying that tests
-    catch them. Features intelligent file filtering, 6 mutation strategies, parallel execution,
-    and multiple output formats including JSON and HTML reports.
+    catch them. Intelligent file filtering, 6 mutation strategies, parallel execution,
+    multiple output formats.
     """
   end
 
