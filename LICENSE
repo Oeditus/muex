@@ -1,19 +1,51 @@
-Copyright (c) 2026 Aleksei Matiushkin
+DUAL LICENSE
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+Copyright (c) 2026 Oeditus
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+This software is dual-licensed under the GNU General Public License v3.0 (GPLv3)
+and a CC-BY-SA-4.0.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+================================================================================
+OPTION 1: GNU GENERAL PUBLIC LICENSE VERSION 3 (GPLv3)
+================================================================================
+
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; version 3 of the License.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301 USA
+
+The full text of the GPLv3 is available at:
+https://www.gnu.org/licenses/old-licenses/gpl-3.0.html
+
+================================================================================
+OPTION 2: CC-BY-SA-4.0
+================================================================================
+
+If you do not wish to be bound by the terms of the GPLv3, you may purchase
+a commercial license from us. The commercial license allows you to:
+
+- Use the software in proprietary applications
+- Distribute the software without disclosing your source code
+- Receive priority support and maintenance
+- Access to enterprise features
+
+================================================================================
+NOTICE
+================================================================================
+
+This dual-licensing model is similar to that used by MySQL and other open-source
+projects. You may choose to use this software under either license option.
+
+If you use this software under the GPLv3, your application must also be licensed
+under GPLv3 or a compatible license, and you must make your source code available.
+
+If you wish to use this software in a proprietary application without releasing
+your source code, you must obtain a commercial license.

@@ -3,28 +3,32 @@ defmodule Muex.MixProject do
 
   @app :muex
   @version "0.1.0"
+  @source_url "https://github.com/am-kantox/muex"
 
   def project do
     [
       app: @app,
       version: @version,
       elixir: "~> 1.14",
-      start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
+      start_permanent: Mix.env() == :prod,
       consolidate_protocols: Mix.env() not in [:dev, :test],
+      deps: deps(),
       description: description(),
       package: package(),
-      deps: deps(),
-      aliases: aliases(),
       docs: docs(),
+      aliases: aliases(),
       test_coverage: [tool: ExCoveralls],
       dialyzer: [
         plt_file: {:no_warn, ".dialyzer/dialyzer.plt"},
         plt_add_deps: :app_tree,
         plt_add_apps: [:mix],
+        plt_core_path: ".dialyzer",
         list_unused_filters: true,
         ignore_warnings: ".dialyzer/ignore.exs"
-      ]
+      ],
+      name: "Muex",
+      source_url: @source_url
     ]
   end
 
@@ -35,15 +39,33 @@ defmodule Muex.MixProject do
     ]
   end
 
+  def cli do
+    [
+      preferred_envs: [
+        coveralls: :test,
+        "coveralls.detail": :test,
+        "coveralls.post": :test,
+        "coveralls.html": :test,
+        "coveralls.json": :test
+      ]
+    ]
+  end
+
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(:ci), do: ["lib"]
+  defp elixirc_paths(:dev), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
+
   defp deps do
     [
-      # production
+      # Core dependency
       {:jason, "~> 1.4"},
-      # dev / test
-      {:credo, "~> 1.0", only: [:dev, :test, :ci]},
-      {:dialyxir, "~> 1.0", only: [:dev, :test, :ci], runtime: false},
-      {:excoveralls, "~> 0.14", only: [:test, :ci], runtime: false},
-      {:ex_doc, "~> 0.11", only: [:dev, :ci]}
+
+      # Development and documentation
+      {:ex_doc, "~> 0.31", only: :dev, runtime: false},
+      {:excoveralls, "~> 0.18", only: :test, runtime: false},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
     ]
   end
 
@@ -60,19 +82,30 @@ defmodule Muex.MixProject do
 
   defp description do
     """
-    Mutation testing library for Elixir, Erlang, and other languages.
+    Language-agnostic mutation testing library for Elixir, Erlang, and other BEAM languages.
+    Evaluates test suite quality by introducing deliberate bugs into code and verifying that tests
+    catch them. Features intelligent file filtering, 6 mutation strategies, parallel execution,
+    and multiple output formats including JSON and HTML reports.
     """
   end
 
   defp package do
     [
       name: @app,
-      files: ~w|lib .formatter.exs .dialyzer/ignore.exs mix.exs README.md LICENSE|,
+      files: ~w(
+        lib
+        .formatter.exs
+        .dialyzer/ignore.exs
+        mix.exs
+        README.md
+        USAGE.md
+        LICENSE
+      ),
+      licenses: ["GPL-3.0", "CC-BY-SA-4.0"],
       maintainers: ["Aleksei Matiushkin"],
-      licenses: ["Kantox LTD"],
       links: %{
-        "GitHub" => "https://github.com/am-kantox/#{@app}",
-        "Docs" => "https://hexdocs.pm/#{@app}"
+        "GitHub" => @source_url,
+        "Documentation" => "https://hexdocs.pm/#{@app}"
       }
     ]
   end
@@ -80,15 +113,72 @@ defmodule Muex.MixProject do
   defp docs do
     [
       main: "readme",
+      logo: "stuff/img/logo-48x48.png",
+      assets: %{"stuff/img" => "assets"},
+      extras: extras(),
+      extra_section: "GUIDES",
+      source_url: @source_url,
       source_ref: "v#{@version}",
-      canonical: "http://hexdocs.pm/#{@app}",
-      source_url: "https://github.com/am-kantox/#{@app}",
-      extras: ~w[README.md]
+      formatters: ["html", "epub"],
+      groups_for_modules: groups_for_modules(),
+      nest_modules_by_prefix: [Muex.Mutator, Muex.Language],
+      before_closing_body_tag: &before_closing_body_tag/1,
+      authors: ["Aleksei Matiushkin"],
+      canonical: "https://hexdocs.pm/#{@app}",
+      skip_undefined_reference_warnings_on: []
     ]
   end
 
-  defp elixirc_paths(:test), do: ["lib", "test/support"]
-  defp elixirc_paths(:ci), do: ["lib"]
-  defp elixirc_paths(:dev), do: ["lib", "test/support"]
-  defp elixirc_paths(_), do: ["lib"]
+  defp extras do
+    [
+      "README.md",
+      "USAGE.md": [title: "Usage Guide"]
+    ]
+  end
+
+  defp groups_for_modules do
+    [
+      "Language Adapters": [
+        Muex.Language,
+        Muex.Language.Elixir,
+        Muex.Language.Erlang
+      ],
+      "Mutation Strategies": [
+        Muex.Mutator,
+        Muex.Mutator.Arithmetic,
+        Muex.Mutator.Boolean,
+        Muex.Mutator.Comparison,
+        Muex.Mutator.Conditional,
+        Muex.Mutator.FunctionCall,
+        Muex.Mutator.Literal
+      ],
+      "Core Components": [
+        Muex.Compiler,
+        Muex.Loader,
+        Muex.Runner,
+        Muex.Reporter,
+        Muex.FileAnalyzer
+      ],
+      "Utilities": [
+        Muex.TestDependency,
+        Mix.Tasks.Muex
+      ]
+    ]
+  end
+
+  defp before_closing_body_tag(:html) do
+    """
+    <script>
+      // Add search keyboard shortcut
+      document.addEventListener("keydown", function(e) {
+        if (e.key === "/" && !e.ctrlKey && !e.metaKey) {
+          e.preventDefault();
+          document.querySelector(".search-input")?.focus();
+        }
+      });
+    </script>
+    """
+  end
+
+  defp before_closing_body_tag(_), do: ""
 end
