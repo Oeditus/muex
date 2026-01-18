@@ -24,23 +24,23 @@ defmodule Muex.FileAnalyzer do
   def analyze_file(%{path: path, ast: ast, module_name: module_name}) do
     cond do
       # Skip Mix tasks (CLI layer, not business logic)
-      is_mix_task?(path, module_name) ->
+      mix_task?(path, module_name) ->
         {:skip, "Mix task"}
 
       # Skip application/supervisor modules
-      is_application?(ast) or is_supervisor?(ast) ->
+      application?(ast) or supervisor?(ast) ->
         {:skip, "Application/Supervisor"}
 
       # Skip behaviour definitions
-      is_behaviour_definition?(ast) ->
+      behaviour_definition?(ast) ->
         {:skip, "Behaviour definition"}
 
       # Skip protocol definitions
-      is_protocol?(ast) ->
+      protocol?(ast) ->
         {:skip, "Protocol definition"}
 
       # Skip reporter/formatter modules (output formatting)
-      is_reporter?(path) ->
+      reporter?(path) ->
         {:skip, "Reporter/Formatter"}
 
       # Skip if in deps directory
@@ -98,30 +98,30 @@ defmodule Muex.FileAnalyzer do
   end
 
   # Check if module is a Mix task
-  defp is_mix_task?(_path, nil), do: false
+  defp mix_task?(_path, nil), do: false
 
-  defp is_mix_task?(path, module_name) do
+  defp mix_task?(path, module_name) do
     String.contains?(path, "/mix/tasks/") or
       module_name |> Module.split() |> List.first() == "Mix"
   end
 
   # Check if module defines an application
-  defp is_application?(ast) do
+  defp application?(ast) do
     has_use?(ast, :Application) or has_callback?(ast, :start)
   end
 
   # Check if module is a supervisor
-  defp is_supervisor?(ast) do
+  defp supervisor?(ast) do
     has_use?(ast, :Supervisor) or has_callback?(ast, :init)
   end
 
   # Check if module is a behaviour definition
-  defp is_behaviour_definition?(ast) do
+  defp behaviour_definition?(ast) do
     has_behaviour_directive?(ast) or has_many_callbacks?(ast)
   end
 
   # Check if module is a protocol
-  defp is_protocol?(ast) do
+  defp protocol?(ast) do
     case ast do
       {:defprotocol, _, _} -> true
       {:defimpl, _, _} -> true
@@ -130,7 +130,7 @@ defmodule Muex.FileAnalyzer do
   end
 
   # Check if module is a reporter
-  defp is_reporter?(path) do
+  defp reporter?(path) do
     String.contains?(path, "/reporter") or
       String.contains?(path, "/formatter")
   end

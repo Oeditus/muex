@@ -77,13 +77,19 @@ defmodule Muex.Reporter do
   def print_progress(result, index, total) do
     {symbol, color} =
       case result.result do
-        :killed -> {"✓", @green}
-        :survived -> {"✗", @red}
-        :invalid -> {"!", @yellow}
-        :timeout -> {"⏱", @magenta}
+        :killed -> {"·", @green}
+        :survived -> {"×", @red}
+        :invalid -> {"-", @yellow}
+        :timeout -> {"?", @magenta}
       end
 
-    IO.write("\r#{@gray}[#{index}/#{total}]#{@reset} #{color}#{symbol}#{@reset}")
+    IO.write("#{color}#{symbol}#{@reset}")
+
+    # Add newline every 80 dots or at the end
+    if rem(index, 80) == 0 or index == total do
+      IO.write("\n")
+    end
+
     :ok
   end
 

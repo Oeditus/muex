@@ -1,5 +1,12 @@
 defmodule Muex.Mutator.Conditional do
-  @moduledoc "Mutator for conditional expressions.\n\nApplies mutations to conditionals:\n- Invert if conditions: `if x` -> `if not x`\n- Remove if/else branches\n- Mutate unless to if\n"
+  @moduledoc """
+  Mutator for conditional expressions.
+
+  Applies mutations to conditionals:
+  - Invert if conditions: `if x` -> `if not x`
+  - Remove if/else branches
+  - Mutate unless to if
+  """
   @behaviour Muex.Mutator
   @impl true
   def name do

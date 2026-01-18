@@ -192,8 +192,8 @@ defmodule Muex.ReporterTest do
 
       output = capture_io(fn -> Reporter.print_progress(result, 5, 10) end)
 
-      assert output =~ "[5/10]"
-      assert output =~ "✓"
+      assert output =~ "·"
+      refute output =~ "\n"
     end
 
     test "prints progress for survived mutation" do
@@ -201,8 +201,8 @@ defmodule Muex.ReporterTest do
 
       output = capture_io(fn -> Reporter.print_progress(result, 3, 10) end)
 
-      assert output =~ "[3/10]"
-      assert output =~ "✗"
+      assert output =~ "×"
+      refute output =~ "\n"
     end
 
     test "prints progress for invalid mutation" do
@@ -210,8 +210,8 @@ defmodule Muex.ReporterTest do
 
       output = capture_io(fn -> Reporter.print_progress(result, 7, 10) end)
 
-      assert output =~ "[7/10]"
-      assert output =~ "!"
+      assert output =~ "-"
+      refute output =~ "\n"
     end
 
     test "prints progress for timeout mutation" do
@@ -219,50 +219,58 @@ defmodule Muex.ReporterTest do
 
       output = capture_io(fn -> Reporter.print_progress(result, 2, 10) end)
 
-      assert output =~ "[2/10]"
-      assert output =~ "⏱"
+      assert output =~ "?"
+      refute output =~ "\n"
+    end
+
+    test "prints newline every 80 dots" do
+      result = %{result: :killed, mutation: test_mutation()}
+
+      output = capture_io(fn -> Reporter.print_progress(result, 80, 100) end)
+
+      assert output =~ "\n"
+    end
+
+    test "prints newline at the end" do
+      result = %{result: :killed, mutation: test_mutation()}
+
+      output = capture_io(fn -> Reporter.print_progress(result, 10, 10) end)
+
+      assert output =~ "\n"
     end
   end
 
   describe "print_progress/3 with ANSI color codes" do
-    test "prints killed mutation with green checkmark" do
+    test "prints killed mutation with green dot" do
       result = %{result: :killed, mutation: test_mutation()}
 
       output = capture_io(fn -> Reporter.print_progress(result, 5, 10) end)
 
-      assert output =~ "\e[32m✓\e[0m"
+      assert output =~ "\e[32m·\e[0m"
     end
 
-    test "prints survived mutation with red cross" do
+    test "prints survived mutation with red dot" do
       result = %{result: :survived, mutation: test_mutation()}
 
       output = capture_io(fn -> Reporter.print_progress(result, 3, 10) end)
 
-      assert output =~ "\e[31m✗\e[0m"
+      assert output =~ "\e[31m×\e[0m"
     end
 
-    test "prints invalid mutation with yellow exclamation" do
+    test "prints invalid mutation with yellow dot" do
       result = %{result: :invalid, mutation: test_mutation()}
 
       output = capture_io(fn -> Reporter.print_progress(result, 7, 10) end)
 
-      assert output =~ "\e[33m!\e[0m"
+      assert output =~ "\e[33m-\e[0m"
     end
 
-    test "prints timeout mutation with magenta clock" do
+    test "prints timeout mutation with magenta dot" do
       result = %{result: :timeout, mutation: test_mutation()}
 
       output = capture_io(fn -> Reporter.print_progress(result, 2, 10) end)
 
-      assert output =~ "\e[35m⏱\e[0m"
-    end
-
-    test "prints progress counter with gray brackets" do
-      result = %{result: :killed, mutation: test_mutation()}
-
-      output = capture_io(fn -> Reporter.print_progress(result, 5, 10) end)
-
-      assert output =~ "\e[90m[5/10]\e[0m"
+      assert output =~ "\e[35m?\e[0m"
     end
   end
 

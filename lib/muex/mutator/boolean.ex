@@ -1,5 +1,13 @@
 defmodule Muex.Mutator.Boolean do
-  @moduledoc "Mutator for boolean operators and literals.\n\nApplies mutations to boolean operations:\n- `and` <-> `or`\n- `&&` <-> `||`\n- `true` <-> `false`\n- Remove negation: `not x` -> `x`\n"
+  @moduledoc """
+  Mutator for boolean operators and literals.
+
+  Applies mutations to boolean operations:
+  - `and` <-> `or`
+  - `&&` <-> `||`
+  - `true` <-> `false`
+  - Remove negation: `not x` -> `x`
+  """
   @behaviour Muex.Mutator
   @impl true
   def name do

@@ -1,5 +1,10 @@
 defmodule Muex.WorkerPool do
-  @moduledoc "Manages a pool of workers for parallel mutation testing.\n\nUses GenServer to coordinate mutation testing across a configurable number\nof workers, preventing system overload while maximizing throughput.\n"
+  @moduledoc """
+  Manages a pool of workers for parallel mutation testing.
+
+  Uses GenServer to coordinate mutation testing across a configurable number
+  of workers, preventing system overload while maximizing throughput.
+  """
   use GenServer
   require Logger
   @default_max_workers 4
@@ -15,16 +20,41 @@ defmodule Muex.WorkerPool do
       :opts,
       :dependency_map,
       :file_to_module,
-      :caller
+      :caller,
+      :total_mutations,
+      :completed_mutations
     ]
   end
 
-  @doc "Starts the worker pool.\n\n## Parameters\n\n  - `opts` - Options:\n    - `:max_workers` - Maximum concurrent workers (default: 4)\n"
+  @doc """
+  Starts the worker pool.
+
+  ## Parameters
+
+    - `opts` - Options:
+      - `:max_workers` - Maximum concurrent workers (default: 4)
+  """
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts)
   end
 
-  @doc "Runs mutations through the worker pool.\n\n## Parameters\n\n  - `pool` - The worker pool PID\n  - `mutations` - List of mutations to test\n  - `file_entry` - The file entry containing the original AST\n  - `language_adapter` - The language adapter module\n  - `dependency_map` - Map of modules to test files\n  - `file_to_module` - Map of file paths to module names\n  - `opts` - Options including `:timeout_ms`\n\n## Returns\n\n  List of mutation results\n"
+  @doc """
+  Runs mutations through the worker pool.
+
+  ## Parameters
+
+    - `pool` - The worker pool PID
+    - `mutations` - List of mutations to test
+    - `file_entry` - The file entry containing the original AST
+    - `language_adapter` - The language adapter module
+    - `dependency_map` - Map of modules to test files
+    - `file_to_module` - Map of file paths to module names
+    - `opts` - Options including `:timeout_ms`
+
+  ## Returns
+
+    List of mutation results
+  """
   @spec run_mutations(
           pid(),
           [map()],
@@ -65,7 +95,9 @@ defmodule Muex.WorkerPool do
       opts: [],
       dependency_map: %{},
       file_to_module: %{},
-      caller: nil
+      caller: nil,
+      total_mutations: 0,
+      completed_mutations: 0
     }
 
     {:ok, state}
@@ -90,7 +122,9 @@ defmodule Muex.WorkerPool do
         file_to_module: file_to_module,
         opts: opts,
         caller: from,
-        results: []
+        results: [],
+        total_mutations: length(mutations),
+        completed_mutations: 0
     }
 
     if Enum.empty?(mutations) do
@@ -105,7 +139,21 @@ defmodule Muex.WorkerPool do
   def handle_info({:worker_done, worker_ref, result}, state) do
     {_worker_pid, new_active} = Map.pop(state.active_workers, worker_ref)
     new_results = [result | state.results]
-    new_state = %{state | active_workers: new_active, results: new_results}
+    new_completed = state.completed_mutations + 1
+
+    # Print progress dot (only if Reporter module is available)
+    try do
+      Muex.Reporter.print_progress(result, new_completed, state.total_mutations)
+    rescue
+      UndefinedFunctionError -> :ok
+    end
+
+    new_state = %{
+      state
+      | active_workers: new_active,
+        results: new_results,
+        completed_mutations: new_completed
+    }
 
     final_state =
       if :queue.is_empty(new_state.pending_mutations) and map_size(new_state.active_workers) == 0 do

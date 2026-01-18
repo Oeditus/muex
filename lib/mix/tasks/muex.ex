@@ -1,5 +1,64 @@
 defmodule Mix.Tasks.Muex do
-  @moduledoc "Run mutation testing on your project.\n\n## Usage\n\n    mix muex [options]\n\n## Options\n\n  * `--files` - Directory, file, or glob pattern (default: \"lib\")\n  * `--language` - Language adapter to use (default: \"elixir\")\n  * `--mutators` - Comma-separated list of mutators (default: all)\n  * `--concurrency` - Number of parallel mutations (default: number of schedulers)\n  * `--timeout` - Test timeout in milliseconds (default: 5000)\n  * `--fail-at` - Minimum mutation score to pass (default: 0)\n  * `--format` - Output format: terminal, json, html (default: terminal)\n  * `--min-score` - Minimum complexity score for files to include (default: 20)\n  * `--max-mutations` - Maximum number of mutations to test (0 = unlimited, default: 0)\n  * `--no-filter` - Disable intelligent file filtering\n  * `--verbose` - Show file analysis details\n\n## Examples\n\n    # Run on all lib files (with intelligent filtering)\n    mix muex\n\n    # Run on all files without filtering\n    mix muex --no-filter\n\n    # Run on specific directory\n    mix muex --files \"lib/muex\"\n\n    # Run on specific file\n    mix muex --files \"lib/my_module.ex\"\n\n    # Run with glob patterns\n    mix muex --files \"lib/muex/*.ex\"\n    mix muex --files \"lib/**/compiler*.ex\"\n\n    # Use specific mutators\n    mix muex --mutators arithmetic,comparison,boolean,literal,function_call,conditional\n\n    # Set minimum complexity score\n    mix muex --min-score 30\n\n    # Limit total mutations to test\n    mix muex --max-mutations 500\n\n    # Show file analysis details\n    mix muex --verbose\n\n    # Fail if mutation score below 80%\n    mix muex --fail-at 80\n\n    # Generate JSON report\n    mix muex --format json\n\n    # Generate HTML report\n    mix muex --format html\n"
+  @moduledoc """
+  Run mutation testing on your project.
+
+  ## Usage
+
+      mix muex [options]
+
+  ## Options
+
+    * `--files` - Directory, file, or glob pattern (default: "lib")
+    * `--language` - Language adapter to use (default: "elixir")
+    * `--mutators` - Comma-separated list of mutators (default: all)
+    * `--concurrency` - Number of parallel mutations (default: number of schedulers)
+    * `--timeout` - Test timeout in milliseconds (default: 5000)
+    * `--fail-at` - Minimum mutation score to pass (default: 0)
+    * `--format` - Output format: terminal, json, html (default: terminal)
+    * `--min-score` - Minimum complexity score for files to include (default: 20)
+    * `--max-mutations` - Maximum number of mutations to test (0 = unlimited, default: 0)
+    * `--no-filter` - Disable intelligent file filtering
+    * `--verbose` - Show file analysis details
+
+  ## Examples
+
+      # Run on all lib files (with intelligent filtering)
+      mix muex
+
+      # Run on all files without filtering
+      mix muex --no-filter
+
+      # Run on specific directory
+      mix muex --files "lib/muex"
+
+      # Run on specific file
+      mix muex --files "lib/my_module.ex"
+
+      # Run with glob patterns
+      mix muex --files "lib/muex/*.ex"
+      mix muex --files "lib/**/compiler*.ex"
+
+      # Use specific mutators
+      mix muex --mutators arithmetic,comparison,boolean,literal,function_call,conditional
+
+      # Set minimum complexity score
+      mix muex --min-score 30
+
+      # Limit total mutations to test
+      mix muex --max-mutations 500
+
+      # Show file analysis details
+      mix muex --verbose
+
+      # Fail if mutation score below 80%
+      mix muex --fail-at 80
+
+      # Generate JSON report
+      mix muex --format json
+
+      # Generate HTML report
+      mix muex --format html
+  """
   use Mix.Task
   alias Muex.Reporter, as: R
   @shortdoc "Run mutation testing"
@@ -80,7 +139,7 @@ defmodule Mix.Tasks.Muex do
     Mix.shell().info("Analyzing test dependencies...")
     dependency_map = Muex.DependencyAnalyzer.analyze("test")
     file_to_module = Map.new(files, fn file -> {file.path, file.module_name} end)
-    Mix.shell().info("Running tests...")
+    Mix.shell().info("Running tests...\n")
 
     results =
       Enum.flat_map(files, fn file ->

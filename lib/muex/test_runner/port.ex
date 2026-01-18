@@ -1,12 +1,31 @@
 defmodule Muex.TestRunner.Port do
-  @moduledoc "Runs tests in isolated Erlang port processes.\n\nEach test run executes in a separate BEAM VM via port, providing complete isolation\nbetween mutations and preventing hot-swapping conflicts.\n"
+  @moduledoc """
+  Runs tests in isolated Erlang port processes.
+
+  Each test run executes in a separate BEAM VM via port, providing complete isolation
+  between mutations and preventing hot-swapping conflicts.
+  """
   @type test_result :: %{
           failures: non_neg_integer(),
           output: String.t(),
           exit_code: non_neg_integer(),
           duration_ms: non_neg_integer()
         }
-  @doc "Runs tests in an isolated port process.\n\n## Parameters\n\n  - `test_files` - List of test file paths to execute\n  - `mutated_file` - Path to the mutated source file (will be compiled in the test env)\n  - `opts` - Options:\n    - `:timeout_ms` - Test timeout in milliseconds (default: 5000)\n    - `:mix_env` - Mix environment (default: \"test\")\n\n## Returns\n\n  `{:ok, test_result}` or `{:error, reason}`\n"
+  @doc """
+  Runs tests in an isolated port process.
+
+  ## Parameters
+
+    - `test_files` - List of test file paths to execute
+    - `mutated_file` - Path to the mutated source file (will be compiled in the test env)
+    - `opts` - Options:
+      - `:timeout_ms` - Test timeout in milliseconds (default: 5000)
+      - `:mix_env` - Mix environment (default: "test")
+
+  ## Returns
+
+    `{:ok, test_result}` or `{:error, reason}`
+  """
   @spec run_tests([Path.t()], Path.t() | nil, keyword()) ::
           {:ok, test_result()} | {:error, term()}
   def run_tests(test_files, mutated_file \\ nil, opts \\ []) do
@@ -33,20 +52,10 @@ defmodule Muex.TestRunner.Port do
   defp spawn_test_port(test_files, mutated_file, mix_env, timeout_ms) do
     args =
       if mutated_file do
-        test_args =
-          if length(test_files) > 0 do
-            test_files
-          else
-            []
-          end
-
+        test_args = test_files
         ["do", "compile", "--force", ",", "test" | test_args]
       else
-        if length(test_files) > 0 do
-          ["test" | test_files]
-        else
-          ["test"]
-        end
+        ["test"] ++ test_files
       end
 
     current_env =

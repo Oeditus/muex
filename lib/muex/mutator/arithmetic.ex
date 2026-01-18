@@ -1,5 +1,13 @@
 defmodule Muex.Mutator.Arithmetic do
-  @moduledoc "Mutator for arithmetic operators.\n\nApplies mutations to arithmetic operations:\n- `+` <-> `-`\n- `*` <-> `/`\n- `+` -> `0` (remove addition)\n- `-` -> `0` (remove subtraction)\n"
+  @moduledoc """
+  Mutator for arithmetic operators.
+
+  Applies mutations to arithmetic operations:
+  - `+` <-> `-`
+  - `*` <-> `/`
+  - `+` -> `0` (remove addition)
+  - `-` -> `0` (remove subtraction)
+  """
   @behaviour Muex.Mutator
   @impl true
   def name do

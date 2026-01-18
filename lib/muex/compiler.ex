@@ -1,6 +1,24 @@
 defmodule Muex.Compiler do
-  @moduledoc "Compiles mutated ASTs and manages module hot-swapping.\n\nUses the language adapter for converting AST to source and compiling modules.\n"
-  @doc "Compiles a mutated AST and loads it into the BEAM.\n\n## Parameters\n\n  - `mutation` - The mutation map containing the mutated AST\n  - `original_ast` - The original (complete) AST with mutation applied\n  - `module_name` - The module name to compile\n  - `language_adapter` - The language adapter module\n\n## Returns\n\n  - `{:ok, {module, original_binary}}` - Successfully compiled and loaded module with original binary\n  - `{:error, reason}` - Compilation failed\n"
+  @moduledoc """
+  Compiles mutated ASTs and manages module hot-swapping.
+
+  Uses the language adapter for converting AST to source and compiling modules.
+  """
+  @doc """
+  Compiles a mutated AST and loads it into the BEAM.
+
+  ## Parameters
+
+    - `mutation` - The mutation map containing the mutated AST
+    - `original_ast` - The original (complete) AST with mutation applied
+    - `module_name` - The module name to compile
+    - `language_adapter` - The language adapter module
+
+  ## Returns
+
+    - `{:ok, {module, original_binary}}` - Successfully compiled and loaded module with original binary
+    - `{:error, reason}` - Compilation failed
+  """
   @spec compile(map(), term(), atom(), module()) :: {:ok, {module(), binary()}} | {:error, term()}
   def compile(mutation, original_ast, module_name, language_adapter) do
     original_binary = get_module_binary(module_name)
@@ -12,7 +30,23 @@ defmodule Muex.Compiler do
     end
   end
 
-  @doc "Compiles a mutated AST and writes it to a temporary file.\n\nThis is used for port-based test execution where the mutated source\nneeds to be on disk for a separate BEAM VM to compile.\n\n## Parameters\n\n  - `mutation` - The mutation map containing the mutated AST\n  - `file_entry` - The file entry containing the original AST and path\n  - `language_adapter` - The language adapter module\n\n## Returns\n\n  - `{:ok, temp_file_path}` - Successfully wrote mutated source to temp file\n  - `{:error, reason}` - Failed to write mutated source\n"
+  @doc """
+  Compiles a mutated AST and writes it to a temporary file.
+
+  This is used for port-based test execution where the mutated source
+  needs to be on disk for a separate BEAM VM to compile.
+
+  ## Parameters
+
+    - `mutation` - The mutation map containing the mutated AST
+    - `file_entry` - The file entry containing the original AST and path
+    - `language_adapter` - The language adapter module
+
+  ## Returns
+
+    - `{:ok, temp_file_path}` - Successfully wrote mutated source to temp file
+    - `{:error, reason}` - Failed to write mutated source
+  """
   @spec compile_to_file(map(), map(), module()) :: {:ok, Path.t()} | {:error, term()}
   def compile_to_file(mutation, file_entry, language_adapter) do
     mutated_full_ast = apply_mutation(file_entry.ast, mutation)
@@ -22,7 +56,19 @@ defmodule Muex.Compiler do
     end
   end
 
-  @doc "Restores the original module from its binary.\n\n## Parameters\n\n  - `module_name` - The module to restore\n  - `original_binary` - The original module binary\n\n## Returns\n\n  - `:ok` - Successfully restored\n  - `{:error, reason}` - Restoration failed\n"
+  @doc """
+  Restores the original module from its binary.
+
+  ## Parameters
+
+    - `module_name` - The module to restore
+    - `original_binary` - The original module binary
+
+  ## Returns
+
+    - `:ok` - Successfully restored
+    - `{:error, reason}` - Restoration failed
+  """
   @spec restore(atom(), binary()) :: :ok | {:error, term()}
   def restore(module_name, original_binary) do
     :code.purge(module_name)

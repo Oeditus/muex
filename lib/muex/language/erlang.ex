@@ -1,5 +1,10 @@
 defmodule Muex.Language.Erlang do
-  @moduledoc "Language adapter for Erlang source code.\n\nThis adapter uses Erlang's built-in parsing modules (:erl_scan, :erl_parse, :erl_prettypr)\nto parse, unparse, and compile Erlang source code.\n"
+  @moduledoc """
+  Language adapter for Erlang source code.
+
+  This adapter uses Erlang's built-in parsing modules (:erl_scan, :erl_parse, :erl_prettypr)
+  to parse, unparse, and compile Erlang source code.
+  """
   @behaviour Muex.Language
   @impl true
   def parse(source) do

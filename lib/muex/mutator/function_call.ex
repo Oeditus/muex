@@ -1,5 +1,11 @@
 defmodule Muex.Mutator.FunctionCall do
-  @moduledoc "Mutator for function calls.\n\nApplies mutations to function calls:\n- Remove function calls (replace with nil)\n- Swap function arguments (when there are 2+ args)\n"
+  @moduledoc """
+  Mutator for function calls.
+
+  Applies mutations to function calls:
+  - Remove function calls (replace with nil)
+  - Swap function arguments (when there are 2+ args)
+  """
   @behaviour Muex.Mutator
   @impl true
   def name do

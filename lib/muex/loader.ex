@@ -1,7 +1,26 @@
 defmodule Muex.Loader do
-  @moduledoc "Loads and parses source files using a language adapter.\n\nThe loader discovers source files, filters out test files and other\nunwanted patterns, and parses them into ASTs using the provided language adapter.\n"
+  @moduledoc """
+  Loads and parses source files using a language adapter.
+
+  The loader discovers source files, filters out test files and other
+  unwanted patterns, and parses them into ASTs using the provided language adapter.
+  """
   @type file_entry :: %{path: String.t(), ast: term(), module_name: atom() | nil}
-  @doc "Loads source files from the given path pattern using the language adapter.\n\n## Parameters\n\n  - `path_pattern` - Directory, file, or glob pattern (e.g., \"lib\", \"lib/**/*.ex\", \"lib/myapp/*.ex\")\n  - `language_adapter` - Module implementing `Muex.Language` behaviour\n  - `opts` - Options:\n    - `:include` - List of glob patterns to include (default: all files with adapter's extensions)\n    - `:exclude` - List of patterns to exclude (default: test files)\n\n## Returns\n\n  `{:ok, files}` where files is a list of `file_entry` maps\n"
+  @doc """
+  Loads source files from the given path pattern using the language adapter.
+
+  ## Parameters
+
+    - `path_pattern` - Directory, file, or glob pattern (e.g., "lib", "lib/**/*.ex", "lib/myapp/*.ex")
+    - `language_adapter` - Module implementing `Muex.Language` behaviour
+    - `opts` - Options:
+      - `:include` - List of glob patterns to include (default: all files with adapter's extensions)
+      - `:exclude` - List of patterns to exclude (default: test files)
+
+  ## Returns
+
+    `{:ok, files}` where files is a list of `file_entry` maps
+  """
   @spec load(String.t(), module(), keyword()) :: {:ok, [file_entry()]} | {:error, term()}
   def load(path_pattern, language_adapter, opts \\ []) do
     extensions = language_adapter.file_extensions()

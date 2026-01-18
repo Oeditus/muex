@@ -1,5 +1,9 @@
 defmodule Muex.Runner do
-  @moduledoc "Runs tests against mutated code.\n\nExecutes the test suite for each mutation and classifies the results.\n"
+  @moduledoc """
+  Runs tests against mutated code.
+
+  Executes the test suite for each mutation and classifies the results.
+  """
   @type result :: :killed | :survived | :invalid | :timeout
   @type mutation_result :: %{
           mutation: map(),
@@ -7,7 +11,21 @@ defmodule Muex.Runner do
           duration_ms: non_neg_integer(),
           error: term() | nil
         }
-  @doc "Runs tests for a single mutation.\n\n## Parameters\n\n  - `mutation` - The mutation to test\n  - `file_entry` - The file entry containing the original AST\n  - `language_adapter` - The language adapter module\n  - `opts` - Options:\n    - `:timeout_ms` - Test timeout in milliseconds (default: 5000)\n\n## Returns\n\n  `mutation_result` map with test results\n"
+  @doc """
+  Runs tests for a single mutation.
+
+  ## Parameters
+
+    - `mutation` - The mutation to test
+    - `file_entry` - The file entry containing the original AST
+    - `language_adapter` - The language adapter module
+    - `opts` - Options:
+      - `:timeout_ms` - Test timeout in milliseconds (default: 5000)
+
+  ## Returns
+
+    `mutation_result` map with test results
+  """
   @spec run_mutation(map(), map(), module(), keyword()) :: mutation_result()
   def run_mutation(mutation, file_entry, language_adapter, opts \\ []) do
     timeout_ms = Keyword.get(opts, :timeout_ms, 5000)
@@ -44,7 +62,24 @@ defmodule Muex.Runner do
     :exit, reason -> %{mutation: mutation, result: :timeout, duration_ms: 0, error: reason}
   end
 
-  @doc "Runs tests for all mutations in parallel using worker pool.\n\n## Parameters\n\n  - `mutations` - List of mutations to test\n  - `file_entry` - The file entry containing the original AST\n  - `language_adapter` - The language adapter module\n  - `dependency_map` - Map of modules to test files\n  - `file_to_module` - Map of file paths to module names\n  - `opts` - Options:\n    - `:max_workers` - Maximum concurrent workers (default: 4)\n    - `:timeout_ms` - Test timeout in milliseconds (default: 5000)\n\n## Returns\n\n  List of `mutation_result` maps\n"
+  @doc """
+  Runs tests for all mutations in parallel using worker pool.
+
+  ## Parameters
+
+    - `mutations` - List of mutations to test
+    - `file_entry` - The file entry containing the original AST
+    - `language_adapter` - The language adapter module
+    - `dependency_map` - Map of modules to test files
+    - `file_to_module` - Map of file paths to module names
+    - `opts` - Options:
+      - `:max_workers` - Maximum concurrent workers (default: 4)
+      - `:timeout_ms` - Test timeout in milliseconds (default: 5000)
+
+  ## Returns
+
+    List of `mutation_result` maps
+  """
   @spec run_all([map()], map(), module(), map(), map(), keyword()) :: [mutation_result()]
   def run_all(
         mutations,

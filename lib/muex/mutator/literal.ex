@@ -1,5 +1,13 @@
 defmodule Muex.Mutator.Literal do
-  @moduledoc "Mutator for literal values.\n\nApplies mutations to literals:\n- Numeric literals: increment/decrement by 1\n- String literals: empty string, change character\n- List literals: empty list\n- Atom literals: change to different atom (except special atoms)\n"
+  @moduledoc """
+  Mutator for literal values.
+
+  Applies mutations to literals:
+  - Numeric literals: increment/decrement by 1
+  - String literals: empty string, change character
+  - List literals: empty list
+  - Atom literals: change to different atom (except special atoms)
+  """
   @behaviour Muex.Mutator
   @special_atoms [nil, true, false, :ok, :error]
   @impl true
