@@ -21,7 +21,7 @@ Muex evaluates test suite quality by introducing deliberate bugs (mutations) int
   - Function calls (remove calls, swap arguments)
   - Conditionals (if/unless mutations)
 - Parallel mutation execution with configurable concurrency
-- Terminal output with mutation scores and detailed reports
+- Colored terminal output with mutation scores and detailed reports
 - Integration with ExUnit
 - Hot module swapping for efficient testing
 
@@ -154,7 +154,13 @@ Analyzing files for mutation testing suitability...
 ## Output Formats
 
 ### Terminal (Default)
-Interactive terminal output with progress indicators and summary:
+Colored terminal output with progress indicators and summary:
+- Green for killed mutations (tests caught the bug)
+- Red for survived mutations (tests missed the bug)
+- Yellow for invalid mutations (compilation errors)
+- Magenta for timeouts
+- Color-coded mutation score (green ≥80%, yellow ≥60%, red <60%)
+
 ```
 Mutation Testing Results
 ==================================================

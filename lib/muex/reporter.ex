@@ -5,6 +5,16 @@ defmodule Muex.Reporter do
   Provides progress updates and final summaries of mutation testing runs.
   """
 
+  # ANSI color codes
+  @reset "\e[0m"
+  @bold "\e[1m"
+  @green "\e[32m"
+  @red "\e[31m"
+  @yellow "\e[33m"
+  @magenta "\e[35m"
+  @cyan "\e[36m"
+  @gray "\e[90m"
+
   @doc """
   Prints a summary of mutation testing results.
 
@@ -28,15 +38,23 @@ defmodule Muex.Reporter do
       end
 
     IO.puts("\n")
-    IO.puts("Mutation Testing Results")
-    IO.puts(String.duplicate("=", 50))
-    IO.puts("Total mutants: #{total}")
-    IO.puts("Killed: #{killed} (caught by tests)")
-    IO.puts("Survived: #{survived} (not caught by tests)")
-    IO.puts("Invalid: #{invalid} (compilation errors)")
-    IO.puts("Timeout: #{timeout}")
-    IO.puts(String.duplicate("=", 50))
-    IO.puts("Mutation Score: #{mutation_score}%")
+    IO.puts("#{@bold}#{@cyan}Mutation Testing Results#{@reset}")
+    IO.puts("#{@gray}#{String.duplicate("=", 50)}#{@reset}")
+    IO.puts("#{@bold}Total mutants:#{@reset} #{total}")
+    IO.puts("#{@green}Killed:#{@reset} #{killed} #{@gray}(caught by tests)#{@reset}")
+    IO.puts("#{@red}Survived:#{@reset} #{survived} #{@gray}(not caught by tests)#{@reset}")
+    IO.puts("#{@yellow}Invalid:#{@reset} #{invalid} #{@gray}(compilation errors)#{@reset}")
+    IO.puts("#{@magenta}Timeout:#{@reset} #{timeout}")
+    IO.puts("#{@gray}#{String.duplicate("=", 50)}#{@reset}")
+
+    score_color =
+      cond do
+        mutation_score >= 80 -> @green
+        mutation_score >= 60 -> @yellow
+        true -> @red
+      end
+
+    IO.puts("#{@bold}Mutation Score: #{score_color}#{mutation_score}%#{@reset}")
     IO.puts("\n")
 
     if survived > 0 do
@@ -57,30 +75,30 @@ defmodule Muex.Reporter do
   """
   @spec print_progress(map(), non_neg_integer(), non_neg_integer()) :: :ok
   def print_progress(result, index, total) do
-    symbol =
+    {symbol, color} =
       case result.result do
-        :killed -> "✓"
-        :survived -> "✗"
-        :invalid -> "!"
-        :timeout -> "⏱"
+        :killed -> {"✓", @green}
+        :survived -> {"✗", @red}
+        :invalid -> {"!", @yellow}
+        :timeout -> {"⏱", @magenta}
       end
 
-    IO.write("\r[#{index}/#{total}] #{symbol}")
+    IO.write("\r#{@gray}[#{index}/#{total}]#{@reset} #{color}#{symbol}#{@reset}")
     :ok
   end
 
   defp print_survived_mutations(results) do
     survived = Enum.filter(results, &(&1.result == :survived))
 
-    IO.puts("Survived Mutations:")
-    IO.puts(String.duplicate("-", 50))
+    IO.puts("#{@bold}#{@red}Survived Mutations:#{@reset}")
+    IO.puts("#{@gray}#{String.duplicate("-", 50)}#{@reset}")
 
     Enum.each(survived, fn result ->
       mutation = result.mutation
       location = mutation.location
 
-      IO.puts("#{location.file}:#{location.line}")
-      IO.puts("  #{mutation.description}")
+      IO.puts("#{@cyan}#{location.file}:#{location.line}#{@reset}")
+      IO.puts("  #{@yellow}#{mutation.description}#{@reset}")
       IO.puts("")
     end)
   end
