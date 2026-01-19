@@ -82,7 +82,7 @@ Watch the GitHub Actions workflow:
 
 ```bash
 # View in browser
-open https://github.com/am-kantox/muex/actions
+open https://github.com/Oeditus/muex/actions
 
 # Or use GitHub CLI
 gh run list --workflow=release.yml
@@ -103,7 +103,7 @@ Check that all artifacts are present:
 gh release view v0.3.0
 
 # Or in browser
-open https://github.com/am-kantox/muex/releases/tag/v0.3.0
+open https://github.com/Oeditus/muex/releases/tag/v0.3.0
 ```
 
 Expected artifacts:
@@ -118,7 +118,7 @@ Test both installation methods:
 
 ```bash
 # Test escript
-wget https://github.com/am-kantox/muex/releases/download/v0.3.0/muex
+wget https://github.com/Oeditus/muex/releases/download/v0.3.0/muex
 chmod +x muex
 ./muex --version
 

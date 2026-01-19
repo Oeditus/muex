@@ -363,7 +363,7 @@ defmodule Muex.CLI do
         # Generate HTML report
         muex --format html
 
-    For more information, visit: https://github.com/am-kantox/muex
+    For more information, visit: https://github.com/Oeditus/muex
     """)
   end
 

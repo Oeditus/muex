@@ -15,7 +15,7 @@ Quick reference for creating a new Muex release.
 
 - [ ] Create tag: `git tag -a vX.Y.Z -m "Release vX.Y.Z"`
 - [ ] Push tag: `git push origin vX.Y.Z`
-- [ ] Monitor workflow: https://github.com/am-kantox/muex/actions
+- [ ] Monitor workflow: https://github.com/Oeditus/muex/actions
 - [ ] Wait for workflow completion (~3-5 minutes)
 
 ## Post-Release
@@ -29,7 +29,7 @@ Quick reference for creating a new Muex release.
 - [ ] Verify Hex.pm publish (stable releases)
 - [ ] Test escript installation:
   ```bash
-  wget https://github.com/am-kantox/muex/releases/download/vX.Y.Z/muex
+  wget https://github.com/Oeditus/muex/releases/download/vX.Y.Z/muex
   chmod +x muex
   ./muex --version
   ```

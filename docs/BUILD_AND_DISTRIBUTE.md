@@ -126,7 +126,7 @@ mix archive.install hex muex
 #### From GitHub
 
 ```bash
-mix archive.install github am-kantox/muex
+mix archive.install github Oeditus/muex
 ```
 
 ### Verification
@@ -151,7 +151,7 @@ The escript is a single, standalone executable that can be distributed via:
    - Upload as a release asset
    - Users download and install manually
    ```bash
-   wget https://github.com/am-kantox/muex/releases/download/v0.2.0/muex
+   wget https://github.com/Oeditus/muex/releases/download/v0.2.0/muex
    chmod +x muex
    sudo mv muex /usr/local/bin/
    ```
@@ -166,8 +166,8 @@ The escript is a single, standalone executable that can be distributed via:
    ```ruby
    class Muex < Formula
      desc "Mutation testing for Elixir and Erlang"
-     homepage "https://github.com/am-kantox/muex"
-     url "https://github.com/am-kantox/muex/releases/download/v0.2.0/muex"
+     homepage "https://github.com/Oeditus/muex"
+     url "https://github.com/Oeditus/muex/releases/download/v0.2.0/muex"
      sha256 "..."
      
      def install

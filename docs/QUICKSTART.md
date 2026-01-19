@@ -25,7 +25,7 @@ Download or build the standalone binary:
 
 ```bash
 # From muex repository
-git clone https://github.com/am-kantox/muex
+git clone https://github.com/Oeditus/muex
 cd muex
 mix deps.get
 mix escript.build
@@ -135,6 +135,6 @@ This indicates your tests don't verify the addition operation correctly.
 
 ## Getting Help
 
-- **Bug reports**: https://github.com/am-kantox/muex/issues
+- **Bug reports**: https://github.com/Oeditus/muex/issues
 - **Documentation**: https://hexdocs.pm/muex
 - **Examples**: See `examples/` directory in the repository

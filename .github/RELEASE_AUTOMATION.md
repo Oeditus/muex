@@ -196,7 +196,7 @@ gh run view --log
 
 ### GitHub UI
 
-Visit: https://github.com/am-kantox/muex/actions
+Visit: https://github.com/Oeditus/muex/actions
 
 Filter by "Release" workflow to see all release builds.
 
@@ -281,8 +281,8 @@ Users can verify downloaded artifacts:
 
 ```bash
 # Download escript and checksum
-wget https://github.com/am-kantox/muex/releases/download/v0.3.0/muex
-wget https://github.com/am-kantox/muex/releases/download/v0.3.0/muex.sha256
+wget https://github.com/Oeditus/muex/releases/download/v0.3.0/muex
+wget https://github.com/Oeditus/muex/releases/download/v0.3.0/muex.sha256
 
 # Verify
 sha256sum -c muex.sha256

@@ -96,7 +96,7 @@ mix archive.install muex-0.2.0.ez
 ### Install from GitHub
 
 ```bash
-mix archive.install github am-kantox/muex
+mix archive.install github Oeditus/muex
 ```
 
 ### Usage

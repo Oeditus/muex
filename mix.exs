@@ -3,7 +3,7 @@ defmodule Muex.MixProject do
 
   @app :muex
   @version "0.3.0"
-  @source_url "https://github.com/am-kantox/muex"
+  @source_url "https://github.com/Oeditus/muex"
 
   def project do
     [
