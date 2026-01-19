@@ -12,6 +12,7 @@ defmodule Muex.CLI do
 
   Parses command-line arguments and runs mutation testing.
   """
+  @spec main([String.t()]) :: no_return()
   def main(args) do
     # Start required applications
     {:ok, _} = Application.ensure_all_started(:muex)
@@ -39,6 +40,7 @@ defmodule Muex.CLI do
   defp parse_args(args), do: {:run, args}
 
   # credo:disable-for-lines:165
+  @spec run_mutation_testing([String.t()]) :: no_return()
   defp run_mutation_testing(args) do
     {opts, _args, invalid} =
       OptionParser.parse(args,

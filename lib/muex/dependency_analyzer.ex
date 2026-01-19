@@ -102,6 +102,8 @@ defmodule Muex.DependencyAnalyzer do
   end
 
   # Walk AST and extract module references
+  @dialyzer {:nowarn_function, extract_modules_from_ast: 1}
+  @spec extract_modules_from_ast(Macro.t()) :: [Macro.t()]
   defp extract_modules_from_ast(ast) do
     {_ast, modules} =
       Macro.prewalk(ast, MapSet.new(), fn node, acc ->
