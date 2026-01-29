@@ -9,6 +9,7 @@ defmodule Mix.Tasks.Muex do
   ## Options
 
     * `--files` - Directory, file, or glob pattern (default: "lib")
+    * `--path` - Synonym for --files
     * `--language` - Language adapter to use (default: "elixir")
     * `--mutators` - Comma-separated list of mutators (default: all)
     * `--concurrency` - Number of parallel mutations (default: number of schedulers)
@@ -19,7 +20,8 @@ defmodule Mix.Tasks.Muex do
     * `--max-mutations` - Maximum number of mutations to test (0 = unlimited, default: 0)
     * `--no-filter` - Disable intelligent file filtering
     * `--verbose` - Show detailed progress information (file analysis, optimization, etc.)
-    * `--optimize` - Enable mutation optimization heuristics (default: disabled)
+    * `--optimize` - Enable mutation optimization heuristics (default: enabled)
+    * `--no-optimize` - Disable mutation optimization heuristics
     * `--optimize-level` - Optimization preset: conservative, balanced, aggressive (default: balanced)
     * `--min-complexity` - Minimum complexity for mutations (default: 2, with --optimize)
     * `--max-per-function` - Max mutations per function (default: 20, with --optimize)
@@ -87,6 +89,7 @@ defmodule Mix.Tasks.Muex do
       OptionParser.parse(args,
         strict: [
           files: :string,
+          path: :string,
           language: :string,
           mutators: :string,
           concurrency: :integer,
@@ -98,13 +101,14 @@ defmodule Mix.Tasks.Muex do
           no_filter: :boolean,
           verbose: :boolean,
           optimize: :boolean,
+          no_optimize: :boolean,
           optimize_level: :string,
           min_complexity: :integer,
           max_per_function: :integer
         ]
       )
 
-    path_pattern = Keyword.get(opts, :files, "lib")
+    path_pattern = Keyword.get(opts, :path) || Keyword.get(opts, :files, "lib")
     language_adapter = get_language_adapter(Keyword.get(opts, :language, "elixir"))
     mutators = get_mutators(Keyword.get(opts, :mutators))
     concurrency = Keyword.get(opts, :concurrency, System.schedulers_online())
@@ -114,7 +118,14 @@ defmodule Mix.Tasks.Muex do
     max_mutations = Keyword.get(opts, :max_mutations, 0)
     no_filter = Keyword.get(opts, :no_filter, false)
     verbose = Keyword.get(opts, :verbose, false)
-    optimize = Keyword.get(opts, :optimize, false)
+
+    optimize =
+      cond do
+        Keyword.get(opts, :no_optimize, false) -> false
+        Keyword.has_key?(opts, :optimize) -> Keyword.get(opts, :optimize)
+        true -> true
+      end
+
     optimize_level = Keyword.get(opts, :optimize_level, "balanced")
     min_complexity = Keyword.get(opts, :min_complexity)
     max_per_function = Keyword.get(opts, :max_per_function)
