@@ -122,7 +122,9 @@ defmodule Muex.Mutator.FunctionCall do
       :=,
       :|>,
       :.,
-      :&
+      :&,
+      :->,
+      :<-
     ]
   end
 

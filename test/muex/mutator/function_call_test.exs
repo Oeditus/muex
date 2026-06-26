@@ -79,6 +79,24 @@ defmodule Muex.Mutator.FunctionCallTest do
 
       assert [] = mutations
     end
+
+    test "does not mutate -> clause arrows (case/fn/cond clauses)" do
+      ast = {:->, [line: 1], [[:pattern], :body]}
+      context = %{file: "test.ex"}
+
+      mutations = FunctionCall.mutate(ast, context)
+
+      assert [] = mutations
+    end
+
+    test "does not mutate <- clauses (with/comprehension clauses)" do
+      ast = {:<-, [line: 1], [:pattern, :expr]}
+      context = %{file: "test.ex"}
+
+      mutations = FunctionCall.mutate(ast, context)
+
+      assert [] = mutations
+    end
   end
 
   describe "mutate/2 - remote function calls" do
