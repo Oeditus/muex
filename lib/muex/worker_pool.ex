@@ -23,8 +23,46 @@ defmodule Muex.WorkerPool do
 
   @default_max_workers 4
 
+  # `State` legitimately wraps opaque values (`MapSet`, `:queue`). Across the
+  # self-recursive `schedule_workers/1` call, Dialyzer cannot keep a consistent
+  # view of those fields and reports an opacity violation in either direction
+  # (call_with_opaque / call_without_opaque) regardless of how the struct is
+  # typed. The code uses only the public MapSet/:queue APIs, so disable opacity
+  # checking for just these two scheduler functions.
+  @dialyzer {:no_opaque, [schedule_workers: 1, maybe_finish_or_schedule: 1]}
+
   defmodule State do
     @moduledoc false
+
+    @typedoc """
+    Internal worker-pool state.
+
+    `locked_files` and `available_sandboxes` hold the opaque `MapSet.t/0` and
+    `:queue.queue/0`. Opacity checking is disabled for the recursive scheduler
+    functions (see the `@dialyzer` attribute on the parent module) because
+    Dialyzer cannot keep a consistent opaque view of them across that recursion.
+    """
+    @type t :: %__MODULE__{
+            max_workers: non_neg_integer(),
+            caller: GenServer.from() | nil,
+            total_mutations: non_neg_integer() | nil,
+            opts: keyword(),
+            project_root: Path.t() | nil,
+            test_paths: [Path.t()],
+            pending_by_file: map(),
+            locked_files: MapSet.t(),
+            active_workers: map(),
+            monitor_to_worker: map(),
+            results: [map()],
+            completed_mutations: non_neg_integer(),
+            file_entries: map(),
+            language_adapter: module() | nil,
+            dependency_map: map(),
+            file_to_module: map(),
+            sandboxes: list(),
+            available_sandboxes: :queue.queue()
+          }
+
     defstruct [
       :max_workers,
       :caller,
@@ -313,6 +351,7 @@ defmodule Muex.WorkerPool do
   # -- Scheduling --
 
   # Try to fill all available worker slots with mutations from unlocked files.
+  @spec schedule_workers(State.t()) :: State.t()
   defp schedule_workers(state) do
     available_slots = state.max_workers - map_size(state.active_workers)
 
@@ -404,6 +443,7 @@ defmodule Muex.WorkerPool do
     end
   end
 
+  @spec maybe_finish_or_schedule(State.t()) :: {:noreply, State.t()}
   defp maybe_finish_or_schedule(state) do
     if map_size(state.active_workers) == 0 and all_queues_empty?(state.pending_by_file) do
       Sandbox.cleanup(state.sandboxes)
