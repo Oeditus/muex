@@ -21,10 +21,14 @@ defmodule Muex.ConfigTest do
       assert config.min_score == 20
       assert config.min_complexity == nil
       assert config.max_per_function == nil
+      assert config.tce == true
+      assert config.since == nil
+      assert config.coverage_guided == false
       assert Muex.Mutator.Literal in config.mutators
       assert Muex.Mutator.StatementDeletion in config.mutators
       assert Muex.Mutator.ReturnValue in config.mutators
-      assert length(config.mutators) == 8
+      # 8 original mutators + 10 ported Elixir-specific mutators
+      assert length(config.mutators) == 18
     end
 
     test "parses --files flag" do
@@ -128,6 +132,26 @@ defmodule Muex.ConfigTest do
     test "parses --keep-metadata-mutations" do
       assert {:ok, config} = Config.from_args(["--keep-metadata-mutations"])
       assert config.keep_metadata
+    end
+
+    test "parses --no-tce" do
+      assert {:ok, config} = Config.from_args(["--no-tce"])
+      assert config.tce == false
+    end
+
+    test "parses --tce explicitly" do
+      assert {:ok, config} = Config.from_args(["--tce"])
+      assert config.tce == true
+    end
+
+    test "parses --since" do
+      assert {:ok, config} = Config.from_args(["--since", "main"])
+      assert config.since == "main"
+    end
+
+    test "parses --coverage-guided" do
+      assert {:ok, config} = Config.from_args(["--coverage-guided"])
+      assert config.coverage_guided == true
     end
   end
 

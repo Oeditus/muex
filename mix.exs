@@ -35,7 +35,7 @@ defmodule Muex.MixProject do
 
   def application do
     [
-      extra_applications: [:logger, :syntax_tools],
+      extra_applications: [:logger, :syntax_tools, :tools],
       mod: {Muex.Application, []}
     ]
   end
@@ -94,8 +94,10 @@ defmodule Muex.MixProject do
     """
     Language-agnostic mutation testing library for Elixir, Erlang, and other BEAM languages.
     Evaluates test suite quality by introducing deliberate bugs into code and verifying that tests
-    catch them. Intelligent file filtering, 6 mutation strategies, parallel execution,
-    multiple output formats.
+    catch them. Intelligent file filtering, 18 mutation strategies (including Elixir-specific
+    pipes, guards, case/cond/with, and Enum/Map semantics), sound equivalent-mutant handling
+    (AST rules plus trivial compiler equivalence), line-precise --since scoping for pull
+    requests, coverage-guided execution, parallel runs, and JSON/HTML reports.
     """
   end
 
@@ -159,7 +161,11 @@ defmodule Muex.MixProject do
         Muex.Runner,
         Muex.Reporter,
         Muex.FileAnalyzer,
-        Muex.MutantOptimizer
+        Muex.MutantOptimizer,
+        Muex.Coverage,
+        Muex.Equivalence,
+        Muex.GitDiff,
+        Muex.Tce
       ],
       "Language Adapters": [
         Muex.Language,
@@ -168,14 +174,25 @@ defmodule Muex.MixProject do
       ],
       "Mutation Strategies": [
         Muex.Mutator,
+        Muex.Mutator.Builders,
         Muex.Mutator.Arithmetic,
         Muex.Mutator.Boolean,
+        Muex.Mutator.CaseClause,
         Muex.Mutator.Comparison,
+        Muex.Mutator.CondClause,
         Muex.Mutator.Conditional,
+        Muex.Mutator.EnumSemantics,
+        Muex.Mutator.ExtendedMath,
         Muex.Mutator.FunctionCall,
+        Muex.Mutator.Guard,
+        Muex.Mutator.InvertNegatives,
         Muex.Mutator.Literal,
+        Muex.Mutator.MapSemantics,
+        Muex.Mutator.NegateConditionals,
+        Muex.Mutator.Pipe,
         Muex.Mutator.ReturnValue,
-        Muex.Mutator.StatementDeletion
+        Muex.Mutator.StatementDeletion,
+        Muex.Mutator.WithClause
       ],
       Reporters: [
         Muex.Reporter.Html,
@@ -187,7 +204,8 @@ defmodule Muex.MixProject do
         Muex.DependencyAnalyzer,
         Muex.TestDependency,
         Muex.TestRunner.Port,
-        Muex.WorkerPool
+        Muex.WorkerPool,
+        Mix.Tasks.Muex.Install
       ]
     ]
   end
