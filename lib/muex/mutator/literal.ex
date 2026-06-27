@@ -41,6 +41,7 @@ defmodule Muex.Mutator.Literal do
   @impl true
   def supported_languages, do: [Muex.Language.Elixir, Muex.Language.Erlang]
 
+  # credo:disable-for-lines:40
   @impl true
   def mutate(ast, context) do
     case ast do

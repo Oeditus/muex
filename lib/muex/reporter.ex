@@ -5,6 +5,8 @@ defmodule Muex.Reporter do
   Provides progress updates and final summaries of mutation testing runs.
   """
 
+  alias Muex.Reporter.Patch
+
   # ANSI color codes
   @reset "\e[0m"
   @bold "\e[1m"
@@ -118,7 +120,7 @@ defmodule Muex.Reporter do
 
       IO.puts("#{@cyan}#{location.file}:#{location.line}#{@reset}")
       IO.puts("  #{@yellow}#{mutation.description}#{@reset}")
-      print_patch(Muex.Reporter.Patch.of(mutation))
+      print_patch(Patch.of(mutation))
       IO.puts("")
     end)
   end
