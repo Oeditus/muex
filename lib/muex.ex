@@ -106,6 +106,7 @@ defmodule Muex do
         context = %{file: file.path}
         Muex.Mutator.walk(file.ast, config.mutators, context)
       end)
+      |> maybe_drop_unlocatable(config)
       |> maybe_optimize(config)
       |> maybe_cap(config)
 
@@ -133,6 +134,28 @@ defmodule Muex do
     )
 
     included
+  end
+
+  # Drop mutations with no usable source location (line: 0). These are
+  # typically compile-time metadata or macro-generated nodes that produce
+  # invalid mutants and clutter reports. Opt out with --keep-metadata-mutations.
+  defp maybe_drop_unlocatable(mutations, %Muex.Config{keep_metadata: true}), do: mutations
+
+  defp maybe_drop_unlocatable(mutations, %Muex.Config{verbose: verbose}) do
+    {located, unlocated} = Enum.split_with(mutations, &locatable?/1)
+
+    if verbose and unlocated != [] do
+      log("Dropping #{length(unlocated)} mutation(s) with no source location (line: 0)", true)
+    end
+
+    located
+  end
+
+  defp locatable?(mutation) do
+    case get_in(mutation, [:location, :line]) do
+      line when is_integer(line) and line > 0 -> true
+      _ -> false
+    end
   end
 
   defp maybe_optimize(mutations, %Muex.Config{optimize: false}), do: mutations

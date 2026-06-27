@@ -57,6 +57,9 @@ defmodule Muex.Config do
     * `--optimize-level` - Preset: `conservative`, `balanced`, `aggressive` (default: `balanced`)
     * `--min-complexity` - Override minimum complexity for optimizer
     * `--max-per-function` - Override maximum mutations per function for optimizer
+    * `--keep-metadata-mutations` - Keep mutations that have no usable source
+      location (reported at `line: 0`). These are typically compile-time
+      metadata; they are dropped by default to keep reports actionable.
   """
 
   @type t :: %__MODULE__{
@@ -77,7 +80,8 @@ defmodule Muex.Config do
           optimize: boolean(),
           optimize_level: String.t(),
           min_complexity: non_neg_integer() | nil,
-          max_per_function: pos_integer() | nil
+          max_per_function: pos_integer() | nil,
+          keep_metadata: boolean()
         }
   @enforce_keys [:files, :test_paths, :project_root, :language, :mutators]
   defstruct [
@@ -98,7 +102,8 @@ defmodule Muex.Config do
     optimize: true,
     optimize_level: "balanced",
     min_complexity: nil,
-    max_per_function: nil
+    max_per_function: nil,
+    keep_metadata: false
   ]
 
   @option_spec files: :string,
@@ -121,7 +126,8 @@ defmodule Muex.Config do
                no_optimize: :boolean,
                optimize_level: :string,
                min_complexity: :integer,
-               max_per_function: :integer
+               max_per_function: :integer,
+               keep_metadata_mutations: :boolean
   @doc "Parses a list of CLI argument strings into a `%Config{}`.\n\nReturns `{:ok, config}` or `{:error, reason}`.\n"
   @spec from_args([String.t()]) :: {:ok, t()} | {:error, String.t()}
   def from_args(args) do
@@ -165,7 +171,8 @@ defmodule Muex.Config do
         optimize: resolve_optimize(opts),
         optimize_level: optimize_level,
         min_complexity: Keyword.get(opts, :min_complexity),
-        max_per_function: Keyword.get(opts, :max_per_function)
+        max_per_function: Keyword.get(opts, :max_per_function),
+        keep_metadata: Keyword.get(opts, :keep_metadata_mutations, false)
       }
 
       {:ok, config}

@@ -119,6 +119,16 @@ defmodule Muex.ConfigTest do
       assert {:ok, config} = Config.from_args(["--format", "json"])
       assert config.format == "json"
     end
+
+    test "keep_metadata defaults to false" do
+      assert {:ok, config} = Config.from_args([])
+      refute config.keep_metadata
+    end
+
+    test "parses --keep-metadata-mutations" do
+      assert {:ok, config} = Config.from_args(["--keep-metadata-mutations"])
+      assert config.keep_metadata
+    end
   end
 
   describe "umbrella support via --app" do

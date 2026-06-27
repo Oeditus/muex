@@ -27,6 +27,7 @@ defmodule Mix.Tasks.Muex do
     * `--optimize-level` - Optimization preset: conservative, balanced, aggressive (default: balanced)
     * `--min-complexity` - Minimum complexity for mutations (default: 2, with --optimize)
     * `--max-per-function` - Max mutations per function (default: 20, with --optimize)
+    * `--keep-metadata-mutations` - Keep mutations with no source location (line: 0); dropped by default
 
   ## Examples
 

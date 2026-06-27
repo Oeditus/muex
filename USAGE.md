@@ -250,6 +250,14 @@ bodies still receive an accurate source line, so survived and suspicious mutants
 are easy to locate. Framework-specific DSLs (Phoenix, Ecto, Ash) can be pruned
 too via presets, described in the Phoenix and DSL Projects section below.
 
+As a final safety net, any mutation that still has no usable source location
+(reported at `line: 0`, typically compile-time or macro-generated metadata) is
+dropped before tests run. Pass `--keep-metadata-mutations` to retain them:
+
+```bash
+mix muex --keep-metadata-mutations
+```
+
 ### Adjust Concurrency
 
 Control parallel execution:

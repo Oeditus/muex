@@ -138,28 +138,78 @@ defmodule Muex.Compiler do
   defp apply_mutation(ast, mutation) do
     original_ast = Map.get(mutation, :original_ast)
     mutated_ast = Map.get(mutation, :ast)
-    mutation_line = get_in(mutation, [:location, :line])
+    target_line = get_in(mutation, [:location, :line])
 
-    Macro.prewalk(ast, fn node ->
-      if matches_mutation?(node, original_ast, mutation_line) do
-        mutated_ast
-      else
+    transform(ast, 0, original_ast, mutated_ast, target_line)
+  end
+
+  # Walk the AST while tracking the nearest enclosing source line, replacing
+  # the node that structurally matches the mutation's original node on the
+  # target line. Tracking the enclosing line is essential for bare literals
+  # (atoms, numbers, strings), which carry no metadata of their own: their
+  # location is the line of the surrounding expression, mirroring how
+  # `Muex.Mutator.walk/3` assigns it during generation. Keyword keys and
+  # module alias segments are left untouched, matching the generation-time
+  # pruning so application targets exactly the nodes that were considered.
+  defp transform(node, enclosing_line, original, mutated, target_line) do
+    line = node_line(node, enclosing_line)
+
+    cond do
+      line == target_line and structurally_equal?(node, original) ->
+        mutated
+
+      match?({:__aliases__, _meta, _segments}, node) ->
         node
-      end
-    end)
+
+      true ->
+        transform_children(node, line, original, mutated, target_line)
+    end
   end
 
-  defp matches_mutation?(node, original_ast, mutation_line) do
-    node_line = get_node_line(node)
-    node_line == mutation_line && structurally_equal?(node, original_ast)
+  # Call with an atom form: keep the form and recurse into args only.
+  defp transform_children({form, meta, args}, line, original, mutated, target_line)
+       when is_atom(form) do
+    {form, meta, transform_args(args, line, original, mutated, target_line)}
   end
 
-  defp get_node_line({_form, meta, _args}) when is_list(meta) do
-    Keyword.get(meta, :line, 0)
+  # Call with a non-atom form (e.g. remote call): recurse into form and args.
+  defp transform_children({form, meta, args}, line, original, mutated, target_line) do
+    new_form = transform(form, line, original, mutated, target_line)
+    {new_form, meta, transform_args(args, line, original, mutated, target_line)}
   end
 
-  defp get_node_line(_) do
-    0
+  # Two-element tuple: never rewrite an atom key, always recurse the value.
+  defp transform_children({left, right}, line, original, mutated, target_line) do
+    new_left =
+      if is_atom(left), do: left, else: transform(left, line, original, mutated, target_line)
+
+    {new_left, transform(right, line, original, mutated, target_line)}
+  end
+
+  defp transform_children(list, line, original, mutated, target_line) when is_list(list) do
+    Enum.map(list, &transform(&1, line, original, mutated, target_line))
+  end
+
+  defp transform_children(leaf, _line, _original, _mutated, _target_line), do: leaf
+
+  defp transform_args(args, _line, _original, _mutated, _target_line) when is_atom(args) do
+    args
+  end
+
+  defp transform_args(args, line, original, mutated, target_line) when is_list(args) do
+    Enum.map(args, &transform(&1, line, original, mutated, target_line))
+  end
+
+  defp transform_args(args, line, original, mutated, target_line) do
+    transform(args, line, original, mutated, target_line)
+  end
+
+  defp node_line({_form, meta, _args}, enclosing_line) when is_list(meta) do
+    Keyword.get(meta, :line, enclosing_line)
+  end
+
+  defp node_line(_node, enclosing_line) do
+    enclosing_line
   end
 
   defp structurally_equal?({form1, _meta1, args1}, {form2, _meta2, args2}) do
