@@ -103,7 +103,7 @@ defmodule Muex do
     all_mutations =
       files
       |> Enum.flat_map(fn file ->
-        context = %{file: file.path}
+        context = %{file: file.path, skip_calls: config.skip_calls}
         Muex.Mutator.walk(file.ast, config.mutators, context)
       end)
       |> maybe_drop_unlocatable(config)

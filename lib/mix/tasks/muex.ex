@@ -28,6 +28,7 @@ defmodule Mix.Tasks.Muex do
     * `--min-complexity` - Minimum complexity for mutations (default: 2, with --optimize)
     * `--max-per-function` - Max mutations per function (default: 20, with --optimize)
     * `--keep-metadata-mutations` - Keep mutations with no source location (line: 0); dropped by default
+    * `--preset` - Framework preset to prune DSL noise: phoenix, ecto, ash, none (default: none)
 
   ## Examples
 
@@ -43,6 +44,7 @@ defmodule Mix.Tasks.Muex do
       mix muex --optimize --optimize-level aggressive
       mix muex --app my_app               # Umbrella: specific app
       mix muex --test-paths "test/unit,test/integration"
+      mix muex --preset phoenix           # Prune Phoenix component/router DSL noise
       mix muex --files "lib/my_module.ex" --test-paths "test/my_module_test.exs"
   """
 

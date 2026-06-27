@@ -258,6 +258,39 @@ dropped before tests run. Pass `--keep-metadata-mutations` to retain them:
 mix muex --keep-metadata-mutations
 ```
 
+### Phoenix and DSL Projects
+
+Framework modules (Phoenix components and routers, Ecto schemas, Ash resources)
+contain large amounts of declarative DSL whose option keys, route paths, and
+field names are compile-time metadata. Mutating them yields invalid mutants
+rather than useful results. Use `--preset` to prune these DSLs during traversal:
+
+```bash
+# Phoenix components, LiveViews, and routers
+mix muex --preset phoenix
+
+# Ecto schemas
+mix muex --preset ecto
+
+# Ash resources
+mix muex --preset ash
+```
+
+Each preset prunes the relevant DSL calls (for example `attr`, `slot`, `~H`,
+`scope`, `pipeline`, and `plug` for Phoenix) in addition to the always-on
+pruning described above.
+
+When `--preset` is set and `--mutators` is not, Muex automatically focuses on
+function-body operators (`arithmetic`, `boolean`, `comparison`, `conditional`,
+`return_value`, `statement_deletion`) and omits the noisier `literal` and
+`function_call` mutators. Override this any time by passing `--mutators`
+explicitly:
+
+```bash
+# Keep the Phoenix DSL pruning but run all mutators
+mix muex --preset phoenix --mutators arithmetic,comparison,boolean,literal,function_call,conditional
+```
+
 ### Adjust Concurrency
 
 Control parallel execution:

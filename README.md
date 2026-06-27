@@ -152,6 +152,9 @@ mix muex --optimize --optimize-level aggressive
 
 # Custom optimization settings
 mix muex --optimize --min-complexity 3 --max-per-function 15
+
+# Reduce invalid/noisy mutations on framework-heavy projects
+mix muex --preset phoenix   # also: ecto, ash
 ```
 
 ## Mutation Optimization

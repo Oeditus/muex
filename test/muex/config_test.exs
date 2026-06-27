@@ -131,6 +131,53 @@ defmodule Muex.ConfigTest do
     end
   end
 
+  describe "--preset" do
+    test "defaults to none with no skip calls" do
+      assert {:ok, config} = Config.from_args([])
+      assert config.preset == "none"
+      assert config.skip_calls == []
+    end
+
+    test "returns error for unknown preset" do
+      assert {:error, msg} = Config.from_args(["--preset", "django"])
+      assert msg =~ "Unknown preset"
+    end
+
+    test "phoenix preset populates skip_calls with component and router DSL" do
+      assert {:ok, config} = Config.from_args(["--preset", "phoenix"])
+      assert config.preset == "phoenix"
+      assert :attr in config.skip_calls
+      assert :slot in config.skip_calls
+      assert :pipeline in config.skip_calls
+      assert :sigil_H in config.skip_calls
+    end
+
+    test "ecto and ash presets populate skip_calls" do
+      assert {:ok, ecto} = Config.from_args(["--preset", "ecto"])
+      assert :field in ecto.skip_calls
+      assert :belongs_to in ecto.skip_calls
+
+      assert {:ok, ash} = Config.from_args(["--preset", "ash"])
+      assert :attributes in ash.skip_calls
+      assert :relationships in ash.skip_calls
+    end
+
+    test "a preset focuses the default mutator set when --mutators is omitted" do
+      assert {:ok, config} = Config.from_args(["--preset", "phoenix"])
+      refute Muex.Mutator.Literal in config.mutators
+      refute Muex.Mutator.FunctionCall in config.mutators
+      assert Muex.Mutator.Comparison in config.mutators
+      assert Muex.Mutator.ReturnValue in config.mutators
+    end
+
+    test "explicit --mutators overrides the preset focus" do
+      assert {:ok, config} =
+               Config.from_args(["--preset", "phoenix", "--mutators", "literal"])
+
+      assert config.mutators == [Muex.Mutator.Literal]
+    end
+  end
+
   describe "umbrella support via --app" do
     test "sets files to apps/<app>/lib" do
       assert {:ok, config} = Config.from_args(["--app", "my_app"])

@@ -60,6 +60,25 @@ defmodule Muex.Config do
     * `--keep-metadata-mutations` - Keep mutations that have no usable source
       location (reported at `line: 0`). These are typically compile-time
       metadata; they are dropped by default to keep reports actionable.
+    * `--preset` - Framework preset that prunes noisy DSL calls: `phoenix`,
+      `ecto`, `ash`, or `none` (default: `none`).
+
+  ## Presets
+
+  Presets reduce invalid/noisy mutations in framework-heavy modules by
+  pruning known DSL macros during traversal (in addition to the always-on
+  pruning of aliases, directives, docs, and keyword keys):
+
+    * `phoenix` - component and router DSL (`attr`, `slot`, `~H`, `scope`,
+      `pipeline`, `plug`, `live`, `get`/`post`/..., and similar)
+    * `ecto` - schema DSL (`schema`, `field`, `belongs_to`, `has_many`, ...)
+    * `ash` - resource DSL (`attributes`, `relationships`, `actions`, ...)
+
+  When `--mutators` is not given and a preset other than `none` is selected,
+  Muex focuses on function-body operators (`arithmetic`, `boolean`,
+  `comparison`, `conditional`, `return_value`, `statement_deletion`) and
+  omits the noisier `literal` and `function_call` mutators. Passing
+  `--mutators` explicitly always overrides this default.
   """
 
   @type t :: %__MODULE__{
@@ -81,7 +100,9 @@ defmodule Muex.Config do
           optimize_level: String.t(),
           min_complexity: non_neg_integer() | nil,
           max_per_function: pos_integer() | nil,
-          keep_metadata: boolean()
+          keep_metadata: boolean(),
+          preset: String.t(),
+          skip_calls: [atom()]
         }
   @enforce_keys [:files, :test_paths, :project_root, :language, :mutators]
   defstruct [
@@ -103,7 +124,9 @@ defmodule Muex.Config do
     optimize_level: "balanced",
     min_complexity: nil,
     max_per_function: nil,
-    keep_metadata: false
+    keep_metadata: false,
+    preset: "none",
+    skip_calls: []
   ]
 
   @option_spec files: :string,
@@ -127,7 +150,8 @@ defmodule Muex.Config do
                optimize_level: :string,
                min_complexity: :integer,
                max_per_function: :integer,
-               keep_metadata_mutations: :boolean
+               keep_metadata_mutations: :boolean,
+               preset: :string
   @doc "Parses a list of CLI argument strings into a `%Config{}`.\n\nReturns `{:ok, config}` or `{:error, reason}`.\n"
   @spec from_args([String.t()]) :: {:ok, t()} | {:error, String.t()}
   def from_args(args) do
@@ -150,7 +174,9 @@ defmodule Muex.Config do
     project_root = resolve_project_root(Keyword.get(opts, :project_root), files)
 
     with {:ok, language} <- resolve_language(Keyword.get(opts, :language, "elixir")),
-         {:ok, mutators} <- resolve_mutators(Keyword.get(opts, :mutators), extra_paths, language),
+         {:ok, preset} <- validate_preset(Keyword.get(opts, :preset, "none")),
+         {:ok, mutators} <-
+           resolve_mutators(Keyword.get(opts, :mutators), extra_paths, language, preset),
          {:ok, optimize_level} <-
            validate_optimize_level(Keyword.get(opts, :optimize_level, "balanced")) do
       config = %__MODULE__{
@@ -172,7 +198,9 @@ defmodule Muex.Config do
         optimize_level: optimize_level,
         min_complexity: Keyword.get(opts, :min_complexity),
         max_per_function: Keyword.get(opts, :max_per_function),
-        keep_metadata: Keyword.get(opts, :keep_metadata_mutations, false)
+        keep_metadata: Keyword.get(opts, :keep_metadata_mutations, false),
+        preset: preset,
+        skip_calls: preset_skip_calls(preset)
       }
 
       {:ok, config}
@@ -362,10 +390,14 @@ defmodule Muex.Config do
     end)
   end
 
-  defp resolve_mutators(nil, extra_paths, language),
-    do: {:ok, all_mutators(extra_paths, language)}
+  defp resolve_mutators(nil, extra_paths, language, preset) do
+    case preset_focus_mutators(preset, extra_paths, language) do
+      nil -> {:ok, all_mutators(extra_paths, language)}
+      mutators -> {:ok, mutators}
+    end
+  end
 
-  defp resolve_mutators(raw, extra_paths, language) do
+  defp resolve_mutators(raw, extra_paths, language, _preset) do
     names = raw |> String.split(",") |> Enum.map(&String.trim/1)
 
     Enum.reduce_while(names, {:ok, []}, fn name, {:ok, acc} ->
@@ -382,6 +414,82 @@ defmodule Muex.Config do
 
   defp validate_optimize_level(other) do
     {:error, "Unknown optimization level: #{other}. Use conservative, balanced, or aggressive"}
+  end
+
+  # DSL call names pruned during traversal for each framework preset. These
+  # are macros whose "literals" are compile-time metadata (option keys,
+  # route paths, field names) rather than runtime values.
+  @preset_skip_calls %{
+    "none" => [],
+    "phoenix" => [
+      :attr,
+      :slot,
+      :embed_templates,
+      :sigil_H,
+      :scope,
+      :pipeline,
+      :pipe_through,
+      :plug,
+      :live,
+      :live_session,
+      :forward,
+      :resources,
+      :get,
+      :post,
+      :put,
+      :patch,
+      :delete,
+      :options,
+      :head,
+      :on_mount
+    ],
+    "ecto" => [
+      :schema,
+      :embedded_schema,
+      :field,
+      :belongs_to,
+      :has_many,
+      :has_one,
+      :many_to_many,
+      :embeds_one,
+      :embeds_many,
+      :timestamps
+    ],
+    "ash" => [
+      :attributes,
+      :attribute,
+      :relationships,
+      :relationship,
+      :actions,
+      :action,
+      :resource,
+      :code_interface,
+      :policies,
+      :policy
+    ]
+  }
+
+  # Focused mutator set used when a preset is active and --mutators is omitted.
+  @preset_focus_mutators ~w(arithmetic boolean comparison conditional return_value statement_deletion)
+
+  defp validate_preset(preset) when preset in ~w(none phoenix ecto ash) do
+    {:ok, preset}
+  end
+
+  defp validate_preset(other) do
+    {:error, "Unknown preset: #{other}. Use phoenix, ecto, ash, or none"}
+  end
+
+  defp preset_skip_calls(preset), do: Map.fetch!(@preset_skip_calls, preset)
+
+  defp preset_focus_mutators("none", _extra_paths, _language), do: nil
+
+  defp preset_focus_mutators(_preset, extra_paths, language) do
+    map = mutator_map(extra_paths, language)
+
+    @preset_focus_mutators
+    |> Enum.map(&Map.get(map, &1))
+    |> Enum.reject(&is_nil/1)
   end
 
   # Detect the project root from an explicit option or by walking up from
