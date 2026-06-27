@@ -231,6 +231,39 @@ defmodule Muex.Mutator.LiteralTest do
     end
   end
 
+  describe "mutate/2 - alias atoms" do
+    test "does not mutate atoms that look like module aliases" do
+      context = %{file: "test.ex"}
+
+      assert [] = Literal.mutate(:Phoenix, context)
+      assert [] = Literal.mutate(:Component, context)
+      assert [] = Literal.mutate(:MyApp, context)
+    end
+
+    test "still mutates lowercase atoms" do
+      assert [mutation] = Literal.mutate(:foo, %{file: "test.ex"})
+      assert mutation.ast == :mutated_atom
+    end
+  end
+
+  describe "mutate/2 - context line" do
+    test "uses the enclosing line from context when present" do
+      assert [m1, m2] = Literal.mutate(5, %{file: "test.ex", line: 12})
+      assert m1.location.line == 12
+      assert m2.location.line == 12
+    end
+
+    test "defaults the line to 0 when context has none" do
+      assert [mutation | _] = Literal.mutate(5, %{file: "test.ex"})
+      assert mutation.location.line == 0
+    end
+
+    test "applies the context line to atom mutations" do
+      assert [mutation] = Literal.mutate(:foo, %{file: "test.ex", line: 7})
+      assert mutation.location.line == 7
+    end
+  end
+
   describe "name/0" do
     test "returns mutator name" do
       assert "Literal" = Literal.name()

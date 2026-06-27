@@ -423,7 +423,14 @@ Mutates literal values to catch hardcoded value dependencies.
 - Numbers: increment/decrement by 1
 - Strings: empty string, append character
 - Lists: mutate empty list
-- Atoms: change to different atom (except `:nil`, `:ok`, `:error`)
+- Atoms: change to different atom (except `nil`, `:ok`, `:error`, and module
+  alias atoms such as `:Phoenix`)
+
+**Notes:**
+- Module alias segments (atoms starting with an uppercase letter) are never
+  mutated, since they are structural metadata rather than runtime values.
+- Each literal mutation reports the line of its enclosing expression, so
+  survived mutants point at the exact source location instead of `line: 0`.
 
 **Example:**
 ```elixir
