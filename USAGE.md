@@ -232,6 +232,24 @@ mix muex --mutators boolean
 mix muex --mutators arithmetic,comparison,boolean,literal,function_call,conditional
 ```
 
+### Automatic Noise Reduction
+
+Before generating mutations, Muex traverses each module and skips constructs that
+are compile-time metadata rather than runtime values. These never produce useful
+mutants, so pruning them keeps reports actionable and cuts down on `invalid`
+results:
+
+- Module alias segments (the `Phoenix` and `Component` in `use Phoenix.Component`)
+- Directives: `use`, `import`, `alias`, `require`
+- Documentation and typespec attributes: `@doc`, `@moduledoc`, `@typedoc`,
+  `@type`, `@spec`, `@behaviour`, `@impl`, and similar
+- Keyword/option keys (only the value of a `key: value` pair is mutated)
+
+This pruning is always on and requires no configuration. Literals inside function
+bodies still receive an accurate source line, so survived and suspicious mutants
+are easy to locate. Framework-specific DSLs (Phoenix, Ecto, Ash) can be pruned
+too via presets, described in the Phoenix and DSL Projects section below.
+
 ### Adjust Concurrency
 
 Control parallel execution:

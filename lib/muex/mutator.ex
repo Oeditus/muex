@@ -9,6 +9,15 @@ defmodule Muex.Mutator do
   Mutators targeting the same AST family (e.g., Elixir and Erlang both use BEAM
   AST) can declare support for multiple languages.
 
+  ## Traversal and Pruning
+
+  `walk/3` performs a context-aware, pre-order traversal of the AST. It threads
+  the nearest enclosing source line through `context[:line]` and prunes subtrees
+  that should never be mutated (module aliases, `use`/`import`/`alias`/`require`,
+  documentation and typespec attributes, and keyword/option keys). Callers can
+  prune additional framework DSL calls via `context[:skip_calls]`. See `walk/3`
+  for the full set of rules.
+
   ## Equivalent Mutations
 
   Mutators can declare that a generated mutation is semantically equivalent to the
@@ -132,33 +141,161 @@ defmodule Muex.Mutator do
 
   def equivalent?(_mutation), do: false
 
+  # Directives whose entire subtree is compile-time metadata, never a
+  # runtime value. Mutating them yields invalid mutants.
+  @always_skip_calls [:use, :import, :alias, :require]
+
+  # Module attributes that carry documentation or typespecs rather than
+  # runtime values. The whole attribute subtree is pruned.
+  @skip_attributes [
+    :doc,
+    :moduledoc,
+    :typedoc,
+    :type,
+    :typep,
+    :opaque,
+    :spec,
+    :callback,
+    :macrocallback,
+    :behaviour,
+    :impl,
+    :derive,
+    :enforce_keys
+  ]
+
   @doc """
-  Walks through an AST and applies all registered mutators.
+  Walks an AST and collects mutations from all registered mutators.
+
+  The traversal is context-aware: it threads the nearest enclosing source
+  line through `context[:line]` (so leaf mutators such as
+  `Muex.Mutator.Literal` can report a real location for bare literals that
+  carry no AST metadata of their own) and prunes subtrees that should never
+  be mutated.
+
+  ## Pruning rules
+
+  The following are skipped for every mutator, regardless of configuration:
+
+    * Module alias segments (`{:__aliases__, _, _}`), e.g. the `Phoenix`
+      and `Component` atoms in `use Phoenix.Component`.
+    * Directives: `use`, `import`, `alias`, `require`.
+    * Documentation and typespec attributes: `@doc`, `@moduledoc`,
+      `@typedoc`, `@type`, `@typep`, `@opaque`, `@spec`, `@callback`,
+      `@macrocallback`, `@behaviour`, `@impl`, `@derive`, `@enforce_keys`.
+    * Keyword/option keys: in a `key: value` pair only `value` is
+      traversed, never the atom `key`.
+
+  Callers can prune additional framework DSL calls by passing a list of
+  call names (atoms) in `context[:skip_calls]`. For example,
+  `[:attr, :slot, :scope, :pipeline]` removes Phoenix component and router
+  DSL noise. See `Muex.Config` presets.
 
   ## Parameters
 
     - `ast` - The AST to traverse
     - `mutators` - List of mutator modules to apply
-    - `context` - Context map with file information
+    - `context` - Context map. Recognised keys:
+      - `:file` - source file path, copied into each mutation's location
+      - `:line` - starting line (defaults to `0`); updated as the walk descends
+      - `:skip_calls` - extra call names (atoms) to prune
 
   ## Returns
 
-    List of all possible mutations found in the AST
+    List of all mutations found in the AST. Each mutation is augmented with
+    `:original_ast` (the matched node), used later during application.
   """
   @spec walk(ast :: term(), mutators :: [module()], context :: map()) :: [mutation()]
   def walk(ast, mutators, context) do
-    {_ast, mutations} =
-      Macro.prewalk(ast, [], fn node, acc ->
-        node_mutations =
-          Enum.flat_map(mutators, fn mutator ->
-            node
-            |> mutator.mutate(context)
-            |> Enum.map(&Map.put(&1, :original_ast, node))
-          end)
-
-        {node, acc ++ node_mutations}
-      end)
-
-    mutations
+    context = Map.put_new(context, :line, 0)
+    skip_calls = Map.get(context, :skip_calls, [])
+    collect(ast, mutators, context, skip_calls)
   end
+
+  # Recursively collect mutations, threading the enclosing line and pruning
+  # skipped subtrees. Preserves `Macro.prewalk/2` (pre-order) ordering while
+  # adding context awareness.
+  defp collect(node, mutators, context, skip_calls) do
+    if skip?(node, skip_calls) do
+      []
+    else
+      context = update_line(context, node)
+
+      mutate_node(node, mutators, context) ++
+        collect_children(node, mutators, context, skip_calls)
+    end
+  end
+
+  defp mutate_node(node, mutators, context) do
+    Enum.flat_map(mutators, fn mutator ->
+      node
+      |> mutator.mutate(context)
+      |> Enum.map(&Map.put(&1, :original_ast, node))
+    end)
+  end
+
+  # Call with an atom form: descend into args only. This mirrors
+  # `Macro.traverse/4`, which does not visit the call name itself.
+  defp collect_children({form, _meta, args}, mutators, context, skip_calls)
+       when is_atom(form) do
+    collect_args(args, mutators, context, skip_calls)
+  end
+
+  # Call with a non-atom form (e.g. remote call `{:., _, _}`): descend into
+  # both the form and the args.
+  defp collect_children({form, _meta, args}, mutators, context, skip_calls) do
+    collect(form, mutators, context, skip_calls) ++
+      collect_args(args, mutators, context, skip_calls)
+  end
+
+  # Two-element tuple: a keyword pair or literal pair. Never mutate an atom
+  # key; always traverse the value.
+  defp collect_children({left, right}, mutators, context, skip_calls) do
+    left_mutations =
+      if is_atom(left), do: [], else: collect(left, mutators, context, skip_calls)
+
+    left_mutations ++ collect(right, mutators, context, skip_calls)
+  end
+
+  defp collect_children(list, mutators, context, skip_calls) when is_list(list) do
+    Enum.flat_map(list, &collect(&1, mutators, context, skip_calls))
+  end
+
+  defp collect_children(_leaf, _mutators, _context, _skip_calls), do: []
+
+  # Args may be a list (normal call) or an atom such as `nil`/`Elixir` for
+  # variables and zero-arity forms, which carry no child nodes.
+  defp collect_args(args, _mutators, _context, _skip_calls) when is_atom(args), do: []
+
+  defp collect_args(args, mutators, context, skip_calls) when is_list(args) do
+    Enum.flat_map(args, &collect(&1, mutators, context, skip_calls))
+  end
+
+  defp collect_args(args, mutators, context, skip_calls) do
+    collect(args, mutators, context, skip_calls)
+  end
+
+  # Module alias segments: pure structural metadata.
+  defp skip?({:__aliases__, _meta, _segments}, _skip_calls), do: true
+
+  # Documentation and typespec module attributes.
+  defp skip?({:@, _meta, [{attr, _attr_meta, _attr_args}]}, _skip_calls)
+       when attr in @skip_attributes,
+       do: true
+
+  # Directive calls and configured DSL calls.
+  defp skip?({form, _meta, args}, skip_calls)
+       when is_atom(form) and (is_list(args) or is_nil(args)) do
+    form in @always_skip_calls or form in skip_calls
+  end
+
+  defp skip?(_node, _skip_calls), do: false
+
+  defp update_line(context, {_form, meta, _args}) when is_list(meta) do
+    case Keyword.get(meta, :line) do
+      nil -> context
+      line -> Map.put(context, :line, line)
+    end
+  end
+
+  defp update_line(context, _node), do: context
 end
