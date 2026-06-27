@@ -702,6 +702,7 @@ mix muex
 - Magenta: Timeouts
 - Color-coded mutation score (green ≥80%, yellow ≥60%, red <60%)
 - Summary statistics
+- A before/after diff under each survived mutation (`- original` / `+ mutated`)
 
 **Example:**
 ```
@@ -747,20 +748,26 @@ Generates `muex-report.json`:
     "survived": 55,
     "invalid": 0,
     "timeout": 0,
-    "mutation_score": 83.9
+    "mutation_score_low": 83.9,
+    "mutation_score_high": 83.9
   },
   "mutations": [
     {
-      "file": "lib/calculator.ex",
-      "line": 15,
-      "mutator": "Arithmetic",
-      "description": "+ → -",
-      "result": "survived",
-      "duration_ms": 234
+      "status": "survived",
+      "mutator": "Muex.Mutator.Arithmetic",
+      "description": "Arithmetic: + to -",
+      "location": { "file": "lib/calculator.ex", "line": 15 },
+      "patch": { "before": "a + b", "after": "a - b" },
+      "duration_ms": 234,
+      "error": null
     }
   ]
 }
 ```
+
+Each mutation includes a `patch` object with `before` and `after` code
+snippets so survived mutants can be reproduced directly from the report. The
+field is `null` when a mutation carries no AST (for example synthetic results).
 
 ### HTML Output
 

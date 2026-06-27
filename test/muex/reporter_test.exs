@@ -88,6 +88,22 @@ defmodule Muex.ReporterTest do
       assert output =~ "Arithmetic: + to -"
     end
 
+    test "shows the before/after patch for survived mutations" do
+      mutation = %{
+        description: "Arithmetic: + to -",
+        location: %{file: "lib/calc.ex", line: 5},
+        original_ast: Code.string_to_quoted!("a + b"),
+        ast: Code.string_to_quoted!("a - b")
+      }
+
+      results = [%{result: :survived, mutation: mutation}]
+
+      output = capture_io(fn -> Reporter.print_summary(results) end)
+
+      assert output =~ "- a + b"
+      assert output =~ "+ a - b"
+    end
+
     test "handles empty results" do
       output = capture_io(fn -> Reporter.print_summary([]) end)
 

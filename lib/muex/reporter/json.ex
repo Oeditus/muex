@@ -3,7 +3,13 @@ defmodule Muex.Reporter.Json do
   JSON reporter for mutation testing results.
 
   Exports results in structured JSON format for CI/CD integration.
+
+  Each mutation entry includes a `patch` object with `before` and `after`
+  code snippets (or `null` when the mutation does not carry the original and
+  mutated AST), so survived mutants can be reproduced from the report alone.
   """
+
+  alias Muex.Reporter.Patch
 
   @doc """
   Generates JSON report from mutation results.
@@ -86,6 +92,7 @@ defmodule Muex.Reporter.Json do
         file: mutation.location.file,
         line: mutation.location.line
       },
+      patch: Patch.of(mutation),
       duration_ms: Map.get(result, :duration_ms, 0),
       error: format_error(Map.get(result, :error))
     }

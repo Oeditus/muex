@@ -118,7 +118,15 @@ defmodule Muex.Reporter do
 
       IO.puts("#{@cyan}#{location.file}:#{location.line}#{@reset}")
       IO.puts("  #{@yellow}#{mutation.description}#{@reset}")
+      print_patch(Muex.Reporter.Patch.of(mutation))
       IO.puts("")
     end)
   end
+
+  defp print_patch(%{before: before_snippet, after: after_snippet}) do
+    IO.puts("    #{@red}- #{before_snippet}#{@reset}")
+    IO.puts("    #{@green}+ #{after_snippet}#{@reset}")
+  end
+
+  defp print_patch(_patch), do: :ok
 end

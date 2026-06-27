@@ -179,7 +179,8 @@ defmodule Muex.MixProject do
       ],
       Reporters: [
         Muex.Reporter.Html,
-        Muex.Reporter.Json
+        Muex.Reporter.Json,
+        Muex.Reporter.Patch
       ],
       Utilities: [
         Muex.CLI,

@@ -59,6 +59,35 @@ defmodule Muex.Reporter.JsonTest do
       assert mutation["error"] == nil
     end
 
+    test "includes a before/after patch for each mutation" do
+      mutation =
+        "lib/test.ex"
+        |> test_mutation(10)
+        |> Map.put(:original_ast, Code.string_to_quoted!("a + b"))
+        |> Map.put(:ast, Code.string_to_quoted!("a - b"))
+
+      results = [%{result: :survived, mutation: mutation, duration_ms: 0, error: nil}]
+
+      json = Json.to_json(results)
+      report = Jason.decode!(json)
+      [decoded] = report["mutations"]
+
+      assert decoded["patch"]["before"] == "a + b"
+      assert decoded["patch"]["after"] == "a - b"
+    end
+
+    test "patch is null when the AST is unavailable" do
+      results = [
+        %{result: :killed, mutation: test_mutation("lib/test.ex", 1), duration_ms: 0, error: nil}
+      ]
+
+      json = Json.to_json(results)
+      report = Jason.decode!(json)
+      [decoded] = report["mutations"]
+
+      assert decoded["patch"] == nil
+    end
+
     test "handles error information" do
       results = [
         %{
