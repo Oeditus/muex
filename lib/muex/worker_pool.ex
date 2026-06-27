@@ -18,7 +18,7 @@ defmodule Muex.WorkerPool do
   use GenServer
   require Logger
 
-  alias Muex.{Compiler, Config, DependencyAnalyzer, Reporter, Sandbox}
+  alias Muex.{Compiler, Config, Coverage, DependencyAnalyzer, Reporter, Sandbox, Tce}
   alias Muex.TestRunner.Port, as: PortRunner
 
   @default_max_workers 4
@@ -421,52 +421,35 @@ defmodule Muex.WorkerPool do
     start_time = System.monotonic_time(:millisecond)
 
     file_entry = Map.fetch!(state.file_entries, file_path)
-
-    # Resolve test files for this mutation
-    test_files =
-      DependencyAnalyzer.get_tests_for_mutation(
-        mutation,
-        state.dependency_map,
-        state.file_to_module
-      )
-
-    test_files =
-      if match?([], test_files) do
-        Config.expand_test_paths(state.test_paths)
-      else
-        test_files
-      end
-
-    # Convert test file paths to be relative to the project root so they
-    # resolve correctly when `mix test` runs inside the sandbox.
-    test_files = relativize_paths(test_files, state.project_root)
+    tce_enabled = Keyword.get(state.opts, :tce, true)
 
     result =
-      case Compiler.compile_to_source(mutation, file_entry, state.language_adapter) do
-        {:ok, mutated_source} ->
-          # Apply the mutation to the sandbox (not the real project)
-          case Sandbox.apply_mutation(sandbox, file_path, mutated_source, file_entry.module_name) do
-            {:ok, _precompiled} ->
-              # Wrap in try/after so the sandbox is always restored,
-              # even if PortRunner.run_tests raises an exception.
-              try do
-                test_result =
-                  PortRunner.run_tests(test_files,
-                    timeout_ms: timeout_ms,
-                    cd: sandbox.root
-                  )
+      case select_tests(mutation, state) do
+        # Coverage-guided: no test exercises this line, so nothing can kill it.
+        :no_coverage ->
+          :no_coverage
 
-                classify_test_result(test_result)
-              after
-                Sandbox.restore(sandbox, file_path)
+        {:run, test_files} ->
+          case Compiler.compile_to_source(mutation, file_entry, state.language_adapter) do
+            {:ok, mutated_source} ->
+              if tce_enabled and Tce.equivalent_source?(file_entry.ast, mutated_source) do
+                # Provably equivalent: no test can ever kill it, so skip the
+                # (expensive) `mix test` subprocess entirely.
+                :equivalent
+              else
+                run_in_sandbox(
+                  sandbox,
+                  file_path,
+                  mutated_source,
+                  file_entry,
+                  test_files,
+                  timeout_ms
+                )
               end
 
             {:error, reason} ->
               {:invalid, reason}
           end
-
-        {:error, reason} ->
-          {:invalid, reason}
       end
 
     duration_ms = System.monotonic_time(:millisecond) - start_time
@@ -482,6 +465,62 @@ defmodule Muex.WorkerPool do
     e -> %{mutation: mutation, result: :timeout, duration_ms: 0, error: e}
   catch
     :exit, reason -> %{mutation: mutation, result: :timeout, duration_ms: 0, error: reason}
+  end
+
+  # Picks the test files to run for a mutation. With coverage guidance, runs
+  # only the tests that execute the mutated line (or :no_coverage if none);
+  # otherwise falls back to module-level dependency analysis, then to the full
+  # test set. Paths are made project-root-relative for `mix test` in the sandbox.
+  defp select_tests(mutation, state) do
+    case Keyword.get(state.opts, :coverage_index) do
+      nil ->
+        default_selection(mutation, state)
+
+      index ->
+        case Coverage.tests_for(index, mutation.location.file, mutation.location.line) do
+          # Executable line that no test runs: nothing can kill it.
+          :no_coverage ->
+            :no_coverage
+
+          {:covered, tests} ->
+            {:run, relativize_paths(tests, state.project_root)}
+
+          # No coverage data for the line (e.g. a non-executable def/module
+          # header, or a mutator that reported line 0): we can't decide, so run
+          # it the default way rather than skip a possibly-killable mutant.
+          :unknown ->
+            default_selection(mutation, state)
+        end
+    end
+  end
+
+  defp default_selection(mutation, state) do
+    mutation
+    |> DependencyAnalyzer.get_tests_for_mutation(state.dependency_map, state.file_to_module)
+    |> fallback_to_all(state.test_paths)
+    |> relativize_paths(state.project_root)
+    |> then(&{:run, &1})
+  end
+
+  defp fallback_to_all([], test_paths), do: Config.expand_test_paths(test_paths)
+  defp fallback_to_all(test_files, _test_paths), do: test_files
+
+  defp run_in_sandbox(sandbox, file_path, mutated_source, file_entry, test_files, timeout_ms) do
+    case Sandbox.apply_mutation(sandbox, file_path, mutated_source, file_entry.module_name) do
+      {:ok, _precompiled} ->
+        # Wrap in try/after so the sandbox is always restored, even if
+        # PortRunner.run_tests raises an exception.
+        try do
+          test_files
+          |> PortRunner.run_tests(timeout_ms: timeout_ms, cd: sandbox.root)
+          |> classify_test_result()
+        after
+          Sandbox.restore(sandbox, file_path)
+        end
+
+      {:error, reason} ->
+        {:invalid, reason}
+    end
   end
 
   defp classify_test_result({:ok, %{failures: 0}}), do: :survived

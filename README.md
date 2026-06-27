@@ -155,6 +155,15 @@ mix muex --optimize --min-complexity 3 --max-per-function 15
 
 # Reduce invalid/noisy mutations on framework-heavy projects
 mix muex --preset phoenix   # also: ecto, ash
+
+# Only mutate lines changed since a branch/ref (pull-request scoping)
+mix muex --since main
+
+# Run only the tests that cover each mutated line
+mix muex --coverage-guided
+
+# Disable Trivial Compiler Equivalence (equivalent-mutant skipping)
+mix muex --no-tce
 ```
 
 ## Mutation Optimization
@@ -224,6 +233,27 @@ Real-world results from the shopping cart example (440 LOC, 84 tests):
 
 See `examples/cart/OPTIMIZATION_RESULTS.md` for complete analysis.
 
+## Equivalent Mutants, Coverage, and Incremental Runs
+
+In addition to the (lossy) optimizer above, Muex applies sound, always-on
+handling that never hides a killable mutant:
+
+- **Equivalent-mutant detection**: AST identity rules (`a + 0` vs `a - 0`,
+  `a * 1` vs `a / 1`, bitshift-by-zero) drop mutations that cannot change
+  behaviour. They are reported as `Equivalent` and excluded from the score.
+- **Trivial Compiler Equivalence (TCE)**: mutants that compile to byte-identical
+  BEAM (for example, deleting a `@moduledoc`) are skipped. Disable with
+  `--no-tce`.
+- **Coverage-guided execution** (`--coverage-guided`): runs only the tests that
+  execute the mutated line; a line that no test covers is reported as
+  `No coverage` and skipped instead of wasting a full test run.
+- **Incremental `--since <ref>`**: scopes mutation testing to the lines changed
+  since a git ref (`git diff <ref>...HEAD`), which is ideal for pull-request CI:
+
+```bash
+mix muex --since main
+```
+
 ## Compile-Time Configuration
 
 Custom language adapters and mutators can be registered in your `config/config.exs` so they are available via the CLI flags:
@@ -246,7 +276,10 @@ Language adapter modules must implement the `Muex.Language` behaviour and mutato
 
 ## Available Mutators
 
-Muex provides 6 comprehensive mutation strategies:
+Muex provides 18 mutation strategies. Core operators work across BEAM languages;
+Elixir-specific operators target Elixir AST constructs.
+
+Core:
 
 - **Arithmetic**: Mutates `+`, `-`, `*`, `/` operators (swap, remove, identity)
 - **Comparison**: Mutates `==`, `!=`, `>`, `<`, `>=`, `<=`, `===`, `!==` operators
@@ -254,6 +287,19 @@ Muex provides 6 comprehensive mutation strategies:
 - **Literal**: Mutates numbers (±1), strings (empty/append), lists (empty), atoms (change)
 - **FunctionCall**: Removes function calls and swaps first two arguments
 - **Conditional**: Inverts conditions, removes branches, converts `unless` to `if`
+- **ReturnValue**: Replaces a function or block return value
+- **StatementDeletion**: Deletes individual statements from blocks
+
+Elixir-specific:
+
+- **Pipe**: Drops a stage from a pipe chain (`x |> f` becomes `x`)
+- **Guard**: Removes a `when` guard by replacing it with `true`
+- **CaseClause** / **CondClause** / **WithClause**: Delete a clause from `case` / `cond` / `with`
+- **MapSemantics**: Mutates map operations
+- **EnumSemantics**: Mutates `Enum` operations
+- **ExtendedMath**: Mutates `rem`, `div`, and bitwise operators
+- **InvertNegatives**: Drops unary negation (`-x` becomes `x`)
+- **NegateConditionals**: Swaps relational operators for their complements
 
 ## Supported Languages
 

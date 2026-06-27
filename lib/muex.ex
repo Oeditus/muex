@@ -96,26 +96,58 @@ defmodule Muex do
   end
 
   defp do_run(config, all_files) do
-    files = maybe_filter(all_files, config)
+    case resolve_changed(config) do
+      {:error, reason} ->
+        {:error, reason}
 
-    log("Generating mutations...", config.verbose)
+      {:ok, changed} ->
+        files =
+          all_files
+          |> maybe_filter(config)
+          |> scope_to_changed_files(changed)
 
-    all_mutations =
-      files
-      |> Enum.flat_map(fn file ->
-        context = %{file: file.path, skip_calls: config.skip_calls}
-        Muex.Mutator.walk(file.ast, config.mutators, context)
-      end)
-      |> maybe_drop_unlocatable(config)
-      |> maybe_optimize(config)
-      |> maybe_cap(config)
+        log("Generating mutations...", config.verbose)
 
-    if all_mutations == [] do
-      {:ok, %{results: [], score_low: 0.0, score_high: 0.0}}
-    else
-      run_mutations(config, files, all_mutations)
+        all_mutations =
+          files
+          |> Enum.flat_map(fn file ->
+            context = %{file: file.path, skip_calls: config.skip_calls}
+            Muex.Mutator.walk(file.ast, config.mutators, context)
+          end)
+          |> maybe_drop_unlocatable(config)
+          |> Muex.GitDiff.filter_mutations(changed)
+          |> drop_equivalent(config)
+          |> maybe_optimize(config)
+          |> maybe_cap(config)
+
+        if all_mutations == [] do
+          {:ok, %{results: [], score_low: 0.0, score_high: 0.0}}
+        else
+          run_mutations(config, files, all_mutations)
+        end
     end
   end
+
+  # `nil` means no --since: run over everything. Otherwise resolve the diff
+  # against the given ref once, up front.
+  defp resolve_changed(%Muex.Config{since: nil}), do: {:ok, nil}
+
+  defp resolve_changed(%Muex.Config{since: ref} = config) do
+    case Muex.GitDiff.changed_since(ref, cd: config.project_root) do
+      {:ok, changed} ->
+        log("Scoping to #{map_size(changed)} file(s) changed since #{ref}", config.verbose)
+        {:ok, changed}
+
+      {:error, reason} ->
+        {:error, "git diff against #{ref} failed: #{reason}"}
+    end
+  end
+
+  # Restrict the file set to those touched by the --since diff (nil = no scoping).
+  defp scope_to_changed_files(files, nil), do: files
+
+  defp scope_to_changed_files(files, changed),
+    do: Enum.filter(files, &Map.has_key?(changed, &1.path))
 
   defp maybe_filter(files, %Muex.Config{filter: false} = config) do
     log("Skipping file filtering", config.verbose)
@@ -158,6 +190,14 @@ defmodule Muex do
     end
   end
 
+  # Always-on, sound: equivalent mutants can never be killed, so dropping them
+  # is a correctness step independent of the (lossy) --optimize sampling.
+  defp drop_equivalent(mutations, %Muex.Config{verbose: verbose}) do
+    kept = Muex.Equivalence.filter_equivalent(mutations)
+    log("Dropped #{length(mutations) - length(kept)} equivalent mutant(s)", verbose)
+    kept
+  end
+
   defp maybe_optimize(mutations, %Muex.Config{optimize: false}), do: mutations
 
   defp maybe_optimize(mutations, %Muex.Config{optimize: true, verbose: verbose} = config) do
@@ -183,6 +223,22 @@ defmodule Muex do
 
   defp maybe_cap(mutations, _config), do: mutations
 
+  # With coverage guidance, build the line->tests index up front by running each
+  # test file under coverage. Returns nil when disabled (the worker then falls
+  # back to module-level dependency analysis).
+  defp maybe_collect_coverage(%Muex.Config{coverage_guided: false}, _test_paths, _file_to_module),
+    do: nil
+
+  defp maybe_collect_coverage(
+         %Muex.Config{coverage_guided: true} = config,
+         test_paths,
+         file_to_module
+       ) do
+    test_files = Muex.Config.expand_test_paths(test_paths)
+    log("Collecting coverage from #{length(test_files)} test file(s)...", config.verbose)
+    Muex.Coverage.collect(test_files, file_to_module, cd: config.project_root)
+  end
+
   defp run_mutations(config, files, all_mutations) do
     log("Testing #{length(all_mutations)} mutation(s)", config.verbose)
     log("Analyzing test dependencies...", config.verbose)
@@ -195,6 +251,8 @@ defmodule Muex do
     dependency_map = Muex.DependencyAnalyzer.analyze(abs_test_paths)
     file_entries = Map.new(files, fn file -> {file.path, file} end)
     file_to_module = Map.new(files, fn file -> {file.path, file.module_name} end)
+
+    coverage_index = maybe_collect_coverage(config, abs_test_paths, file_to_module)
 
     log(
       "Running tests...
@@ -213,7 +271,9 @@ defmodule Muex do
         timeout_ms: config.timeout_ms,
         verbose: config.verbose,
         test_paths: abs_test_paths,
-        project_root: config.project_root
+        project_root: config.project_root,
+        tce: config.tce,
+        coverage_index: coverage_index
       )
 
     case output_report(results, config.format, config.verbose) do

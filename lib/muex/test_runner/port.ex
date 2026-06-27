@@ -71,7 +71,9 @@ defmodule Muex.TestRunner.Port do
       end
 
     mix_path = System.find_executable("mix")
-    args = ["test"] ++ compile_flags ++ test_files
+    # --max-failures 1: a mutant is killed by any failing test, so stop at the
+    # first one instead of running the whole (selected) suite.
+    args = ["test", "--max-failures", "1"] ++ compile_flags ++ test_files
 
     current_env =
       System.get_env()

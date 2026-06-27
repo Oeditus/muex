@@ -54,6 +54,12 @@ defmodule Muex.Config do
     * `--no-filter` - Disable intelligent file filtering
     * `--verbose` - Show detailed progress information
     * `--optimize` / `--no-optimize` - Enable/disable mutation optimization (default: enabled)
+    * `--tce` / `--no-tce` - Enable/disable Trivial Compiler Equivalence, which
+      drops mutants that compile to identical BEAM code (default: enabled)
+    * `--since` - Only test mutations on lines changed since the given git ref
+      (e.g. `--since main`), using `git diff <ref>...HEAD` (PR semantics)
+    * `--coverage-guided` - Run only the tests that cover each mutated line, and
+      skip mutations on lines no test exercises (default: disabled)
     * `--optimize-level` - Preset: `conservative`, `balanced`, `aggressive` (default: `balanced`)
     * `--min-complexity` - Override minimum complexity for optimizer
     * `--max-per-function` - Override maximum mutations per function for optimizer
@@ -97,6 +103,9 @@ defmodule Muex.Config do
           filter: boolean(),
           verbose: boolean(),
           optimize: boolean(),
+          tce: boolean(),
+          since: String.t() | nil,
+          coverage_guided: boolean(),
           optimize_level: String.t(),
           min_complexity: non_neg_integer() | nil,
           max_per_function: pos_integer() | nil,
@@ -121,6 +130,9 @@ defmodule Muex.Config do
     filter: true,
     verbose: false,
     optimize: true,
+    tce: true,
+    since: nil,
+    coverage_guided: false,
     optimize_level: "balanced",
     min_complexity: nil,
     max_per_function: nil,
@@ -147,6 +159,10 @@ defmodule Muex.Config do
                verbose: :boolean,
                optimize: :boolean,
                no_optimize: :boolean,
+               tce: :boolean,
+               no_tce: :boolean,
+               since: :string,
+               coverage_guided: :boolean,
                optimize_level: :string,
                min_complexity: :integer,
                max_per_function: :integer,
@@ -195,6 +211,9 @@ defmodule Muex.Config do
         filter: not Keyword.get(opts, :no_filter, false),
         verbose: Keyword.get(opts, :verbose, false),
         optimize: resolve_optimize(opts),
+        tce: resolve_tce(opts),
+        since: Keyword.get(opts, :since),
+        coverage_guided: Keyword.get(opts, :coverage_guided, false),
         optimize_level: optimize_level,
         min_complexity: Keyword.get(opts, :min_complexity),
         max_per_function: Keyword.get(opts, :max_per_function),
@@ -315,6 +334,14 @@ defmodule Muex.Config do
     cond do
       Keyword.get(opts, :no_optimize, false) -> false
       Keyword.has_key?(opts, :optimize) -> Keyword.get(opts, :optimize)
+      true -> true
+    end
+  end
+
+  defp resolve_tce(opts) do
+    cond do
+      Keyword.get(opts, :no_tce, false) -> false
+      Keyword.has_key?(opts, :tce) -> Keyword.get(opts, :tce)
       true -> true
     end
   end

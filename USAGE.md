@@ -228,8 +228,11 @@ mix muex --mutators arithmetic,comparison
 # Only boolean logic
 mix muex --mutators boolean
 
-# All available mutators
-mix muex --mutators arithmetic,comparison,boolean,literal,function_call,conditional
+# Core mutators
+mix muex --mutators arithmetic,comparison,boolean,literal,function_call,conditional,return_value,statement_deletion
+
+# Elixir-specific mutators
+mix muex --mutators pipe,guard,case_clause,cond_clause,with_clause,map_semantics,enum_semantics,extended_math,invert_negatives,negate_conditionals
 ```
 
 ### Automatic Noise Reduction
@@ -370,6 +373,53 @@ mix muex --max-mutations 100
 Default: 0 (unlimited)
 
 This is useful for getting quick feedback during development or when first integrating Muex into a large project.
+
+### Incremental Runs with --since
+
+Scope mutation testing to only the lines changed on the current branch relative
+to a git ref. This uses `git diff <ref>...HEAD` (pull-request semantics) and is
+ideal for fast CI on pull requests:
+
+```bash
+# Only mutate lines changed since main
+mix muex --since main
+
+# Compare against any ref (tag, branch, SHA)
+mix muex --since origin/develop
+```
+
+Only files and lines touched by the diff are mutated; everything else is skipped.
+
+### Coverage-Guided Execution
+
+With `--coverage-guided`, Muex first builds a line-level coverage index (which
+test file executes which source line) and then, for each mutant, runs only the
+tests that cover the mutated line. Lines that no test covers are reported as
+`No coverage` and skipped rather than wasting a full test run:
+
+```bash
+mix muex --coverage-guided
+```
+
+This can dramatically cut runtime on large suites at the cost of an up-front
+coverage pass.
+
+### Equivalent Mutant Handling
+
+Some mutations cannot change observable behaviour, so no test could ever kill
+them. Counting them as survivors would deflate the score, so Muex drops them
+soundly (it never drops a killable mutant):
+
+- AST identity rules (for example `a + 0` vs `a - 0`, `a * 1` vs `a / 1`).
+- Trivial Compiler Equivalence (TCE): mutants that compile to byte-identical
+  BEAM, such as deleting a `@moduledoc`.
+
+Both are on by default; equivalents are reported as `Equivalent` and excluded
+from the score. Disable TCE with:
+
+```bash
+mix muex --no-tce
+```
 
 ## Mutation Strategies
 

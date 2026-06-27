@@ -52,6 +52,12 @@ defmodule Muex.CLI do
         Mix.Task.run("compile", ["--no-deps-check"])
 
         case Muex.run(config) do
+          {:ok, %{results: []}} ->
+            # No mutations were generated (e.g. --since with no mutable changes).
+            # There is nothing to score, so the run passes the gate.
+            IO.puts("No mutations to test; nothing to score.")
+            System.halt(0)
+
           {:ok, %{score_low: score_low, score_high: score_high}} ->
             if score_low < config.fail_at do
               score_str =
@@ -107,15 +113,30 @@ defmodule Muex.CLI do
         --optimize-level <level>    Optimization: conservative, balanced, aggressive
         --min-complexity <n>        Minimum complexity for mutations (default: 2)
         --max-per-function <n>      Max mutations per function (default: 20)
+        --tce / --no-tce            Trivial Compiler Equivalence (default: enabled)
+        --since <ref>               Only mutate lines changed since a git ref
+        --coverage-guided           Run only tests covering each mutated line
         -h, --help                  Show this help message
         -v, --version               Show version information
     MUTATORS:
-        arithmetic      Mutate arithmetic operators (+, -, *, /)
-        comparison      Mutate comparison operators (==, !=, <, >, <=, >=)
-        boolean         Mutate boolean operators (and, or, not, true, false)
-        literal         Mutate literal values (numbers, strings, lists, atoms)
-        function_call   Mutate function calls (remove, swap arguments)
-        conditional     Mutate conditionals (if, unless)
+        arithmetic           Mutate arithmetic operators (+, -, *, /)
+        comparison           Mutate comparison operators (==, !=, <, >, <=, >=)
+        boolean              Mutate boolean operators (and, or, not, true, false)
+        literal              Mutate literal values (numbers, strings, lists, atoms)
+        function_call        Mutate function calls (remove, swap arguments)
+        conditional          Mutate conditionals (if, unless)
+        return_value         Mutate function/block return values
+        statement_deletion   Delete individual statements from blocks
+        pipe                 Drop a stage from a pipe chain (x |> f becomes x)
+        guard                Remove a when guard (replace with true)
+        case_clause          Delete a clause from a case expression
+        cond_clause          Delete a clause from a cond expression
+        with_clause          Delete a clause from a with expression
+        map_semantics        Mutate map operations (Elixir-specific)
+        enum_semantics       Mutate Enum operations (Elixir-specific)
+        extended_math        Mutate rem, div, and bitwise operators
+        invert_negatives     Drop unary negation (-x becomes x)
+        negate_conditionals  Swap relational operators for their complements
     EXAMPLES:
         # Run on all lib files
         muex

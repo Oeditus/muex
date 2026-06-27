@@ -27,6 +27,9 @@ defmodule Mix.Tasks.Muex do
     * `--optimize-level` - Optimization preset: conservative, balanced, aggressive (default: balanced)
     * `--min-complexity` - Minimum complexity for mutations (default: 2, with --optimize)
     * `--max-per-function` - Max mutations per function (default: 20, with --optimize)
+    * `--tce` / `--no-tce` - Enable/disable Trivial Compiler Equivalence (default: enabled)
+    * `--since` - Only test mutations on lines changed since a git ref, e.g. --since main (PR scoping)
+    * `--coverage-guided` - Run only the tests that cover each mutated line (default: disabled)
     * `--keep-metadata-mutations` - Keep mutations with no source location (line: 0); dropped by default
     * `--preset` - Framework preset to prune DSL noise: phoenix, ecto, ash, none (default: none)
 
@@ -45,6 +48,9 @@ defmodule Mix.Tasks.Muex do
       mix muex --app my_app               # Umbrella: specific app
       mix muex --test-paths "test/unit,test/integration"
       mix muex --preset phoenix           # Prune Phoenix component/router DSL noise
+      mix muex --since main               # Only mutate lines changed since main
+      mix muex --coverage-guided          # Run only tests covering each mutated line
+      mix muex --no-tce                   # Disable Trivial Compiler Equivalence
       mix muex --files "lib/my_module.ex" --test-paths "test/my_module_test.exs"
   """
 
@@ -61,6 +67,11 @@ defmodule Mix.Tasks.Muex do
         case Muex.run(config) do
           {:error, reason} ->
             Mix.raise(reason)
+
+          {:ok, %{results: []}} ->
+            # No mutations were generated (e.g. --since with no mutable changes).
+            # There is nothing to score, so the run passes the gate.
+            Mix.shell().info("No mutations to test; nothing to score.")
 
           {:ok, %{score_low: score_low, score_high: score_high}} ->
             # Use the pessimistic (low) bound for threshold comparison.

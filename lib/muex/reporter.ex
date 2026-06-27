@@ -31,8 +31,12 @@ defmodule Muex.Reporter do
     survived = Enum.count(results, &(&1.result == :survived))
     invalid = Enum.count(results, &(&1.result == :invalid))
     timeout = Enum.count(results, &(&1.result == :timeout))
+    equivalent = Enum.count(results, &(&1.result == :equivalent))
+    no_coverage = Enum.count(results, &(&1.result == :no_coverage))
 
-    # Invalids are excluded: they say nothing about test quality.
+    # Invalids, equivalents, and no-coverage mutants are excluded: none of them
+    # says anything about test quality (an equivalent mutant can never be
+    # killed, and a no-coverage line has no test that could kill it).
     # Timeouts are ambiguous -- could be killed or survived.
     denom = killed + survived + timeout
 
@@ -53,6 +57,19 @@ defmodule Muex.Reporter do
     IO.puts("#{@red}Survived:#{@reset} #{survived} #{@gray}(not caught by tests)#{@reset}")
     IO.puts("#{@yellow}Invalid:#{@reset} #{invalid} #{@gray}(compilation errors)#{@reset}")
     IO.puts("#{@magenta}Timeout:#{@reset} #{timeout}")
+
+    if equivalent > 0 do
+      IO.puts(
+        "#{@gray}Equivalent:#{@reset} #{equivalent} #{@gray}(provably unkillable, skipped)#{@reset}"
+      )
+    end
+
+    if no_coverage > 0 do
+      IO.puts(
+        "#{@gray}No coverage:#{@reset} #{no_coverage} #{@gray}(no test exercises the line, skipped)#{@reset}"
+      )
+    end
+
     IO.puts("#{@gray}#{String.duplicate("=", 50)}#{@reset}")
 
     score_color =
@@ -96,6 +113,8 @@ defmodule Muex.Reporter do
         :survived -> {"×", @red}
         :invalid -> {"-", @yellow}
         :timeout -> {"?", @magenta}
+        :equivalent -> {"≡", @gray}
+        :no_coverage -> {"∅", @gray}
       end
 
     IO.write("#{color}#{symbol}#{@reset}")
