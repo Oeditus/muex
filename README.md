@@ -37,7 +37,7 @@ Add `muex` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:muex, "~> 0.2.0", only: [:dev, :test], runtime: false}
+    {:muex, "~> 0.8", only: [:dev, :test], runtime: false}
   ]
 end
 ```
