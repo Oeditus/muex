@@ -81,8 +81,9 @@ defmodule Muex.Tce do
     # never compile and clobber the project's real modules mid-run.
     case rename_module(module_ast, probe) do
       {:ok, renamed} ->
-        # with_diagnostics captures compiler warnings/errors instead of printing
-        # them, keeping mutant compile failures off the console.
+        # with_diagnostics captures ordinary compiler warnings (e.g. an unused
+        # variable introduced by a mutation) instead of printing them, keeping
+        # mutant compile noise off the console.
         {result, _diagnostics} = Code.with_diagnostics(fn -> compile_renamed(renamed) end)
         result
 
@@ -92,7 +93,7 @@ defmodule Muex.Tce do
   end
 
   defp compile_renamed(renamed) do
-    case Code.compile_quoted(renamed) do
+    case compile_without_verification(renamed) do
       [{module, binary} | _] ->
         purge(module)
         {:ok, binary}
@@ -104,6 +105,56 @@ defmodule Muex.Tce do
     _ -> :error
   catch
     _, _ -> :error
+  end
+
+  # Compile the throwaway probe and return `[{module, binary}]`, deliberately
+  # WITHOUT running the post-compile verification pass.
+  #
+  # `Code.compile_quoted/1` is `Module.ParallelChecker.verify(fn ->
+  # :elixir_compiler.quoted(...) end)`: after compiling, it runs the module
+  # through `Module.ParallelChecker`, which invokes every `@after_verify`
+  # callback the module registered. For a Spark/Ash module (`Ash.Resource`,
+  # `Ash.Domain`, ...) that callback is `__verify_spark_dsl__/1`, which — once
+  # the module has been renamed to a throwaway name — warns that the name isn't
+  # a configured `:ash_domains` entry and raises (Spark catches it and re-emits
+  # it as a warning) because the renamed module no longer owns its resources.
+  # The checker prints those warnings UNCONDITIONALLY straight to the group
+  # leader, so the surrounding `Code.with_diagnostics/2` cannot swallow them and
+  # they flood the output for every resource module on every mutant.
+  #
+  # TCE only needs the compiled function bytecode, and verification never
+  # influences it (a module compiles to byte-identical BEAM whether or not its
+  # `@after_verify` hooks run), so skipping verification is both sound and
+  # strictly cheaper. See https://github.com/Oeditus/muex/issues/17.
+  #
+  # This mirrors `verify/1`'s own setup (seed `:elixir_checker_info`, restore it
+  # afterwards) but stops the lazily-created checker cache instead of running it.
+  # If a future Elixir drops the internals we rely on, we fall back to the
+  # ordinary (verifying) compile so TCE keeps working.
+  defp compile_without_verification(quoted) do
+    if function_exported?(:elixir_compiler, :quoted, 3) and
+         function_exported?(Module.ParallelChecker, :stop, 1) do
+      previous = :erlang.put(:elixir_checker_info, {self(), nil})
+
+      try do
+        result = :elixir_compiler.quoted(quoted, "nofile", fn _file, _module -> :ok end)
+
+        case :erlang.get(:elixir_checker_info) do
+          {_pid, nil} -> :ok
+          {_pid, cache} -> Module.ParallelChecker.stop(cache)
+        end
+
+        result
+      after
+        if previous == :undefined do
+          :erlang.erase(:elixir_checker_info)
+        else
+          :erlang.put(:elixir_checker_info, previous)
+        end
+      end
+    else
+      Code.compile_quoted(quoted)
+    end
   end
 
   defp probe_alias do
