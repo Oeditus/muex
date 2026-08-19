@@ -2,7 +2,7 @@ defmodule Muex.MixProject do
   use Mix.Project
 
   @app :muex
-  @version "0.8.1"
+  @version "0.8.2"
   @source_url "https://github.com/Oeditus/muex"
 
   def project do
