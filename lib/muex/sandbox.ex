@@ -122,11 +122,7 @@ defmodule Muex.Sandbox do
         # Code.compile_string in the parent VM is not viable: modules with
         # compile-time dependencies (use, import, structs) fail, and
         # successful compilations pollute the parent's module state.
-        if module_name do
-          beam_pattern = Path.join([sandbox.root, "_build", "**", "#{module_name}.beam"])
-          beam_paths = Path.wildcard(beam_pattern)
-          Enum.each(beam_paths, &File.rm/1)
-        end
+        if module_name, do: remove_stale_beam(sandbox, original_path, module_name)
 
         {:ok, false}
 
@@ -286,7 +282,7 @@ defmodule Muex.Sandbox do
   # ensure_build_copy_for_file/2 replaces the specific app's symlink with a
   # real copy so that sandbox can recompile independently.
   defp setup_build_dir(root, project_root, build_env) do
-    source_build = Path.join([project_root, "_build", build_env])
+    source_build = Path.join([project_build_root(project_root), build_env])
     target_build = Path.join([root, "_build", build_env])
 
     if File.dir?(source_build) do
@@ -313,8 +309,36 @@ defmodule Muex.Sandbox do
     end
   end
 
+  # Delete the stale beam from this sandbox's own build copy, addressed
+  # explicitly rather than matched with a wildcard.
+  #
+  # `Path.wildcard/1` follows symlinks, and every app under the sandbox's
+  # `_build` starts life as a symlink into the project's real build directory
+  # (see setup_build_dir/3). If ensure_build_copy_for_file/2 could not turn that
+  # symlink into a copy — which happens whenever the app name cannot be worked
+  # out from the file path — a `**` match walks straight through it and removes
+  # the project's compiled modules. Mix will not rebuild them, because the
+  # sources have not changed.
+  #
+  # Doing nothing is the safe failure here: without a copy there is no beam of
+  # ours to remove, and the mutation simply does not take effect.
+  defp remove_stale_beam(sandbox, file_path, module_name) do
+    with app_name when is_binary(app_name) <-
+           extract_app_name_from_path(file_path, sandbox.project_root, sandbox.build_env),
+         app_build <-
+           Path.join([sandbox.root, "_build", sandbox.build_env, "lib", app_name]),
+         {:error, _} <- File.read_link(app_build) do
+      app_build
+      |> Path.join("ebin")
+      |> Path.join("#{module_name}.beam")
+      |> File.rm()
+    end
+
+    :ok
+  end
+
   defp ensure_app_mirrored_for_file(sandbox, file_path) do
-    case extract_app_name_from_path(file_path, sandbox.project_root) do
+    case extract_app_name_from_path(file_path, sandbox.project_root, sandbox.build_env) do
       nil -> :ok
       app_name -> ensure_app_mirrored(sandbox, app_name)
     end
@@ -324,11 +348,13 @@ defmodule Muex.Sandbox do
   # name ("supply_chain") and ensure its _build/test/lib/<app> directory
   # is a real deep copy (not a symlink) so we can delete its beam files.
   defp ensure_build_copy_for_file(sandbox, file_path) do
-    app_name = extract_app_name_from_path(file_path, sandbox.project_root)
+    app_name =
+      extract_app_name_from_path(file_path, sandbox.project_root, sandbox.build_env)
+
     if app_name, do: ensure_build_copy(sandbox, app_name)
   end
 
-  defp extract_app_name_from_path(file_path, project_root) do
+  defp extract_app_name_from_path(file_path, project_root, build_env) do
     # Canonicalize: strip leading ./ and make relative so Path.split
     # always produces ["apps", app_name, ...] for umbrella paths.
     # Handles ./apps/foo/..., /abs/path/apps/foo/..., and apps/foo/...
@@ -351,27 +377,40 @@ defmodule Muex.Sandbox do
         end
       end)
 
+    # `elixirc_paths` accepts any directory, so sources legitimately live
+    # outside `lib/`. Anything that is not an umbrella path falls back to
+    # reading the app name out of the build directory.
     case Path.split(normalized) do
       ["apps", app_name | _] -> app_name
-      ["lib" | _] -> detect_app_from_build(project_root)
-      _ -> nil
+      _ -> detect_app_from_build(project_root, build_env)
     end
   end
 
-  defp detect_app_from_build(project_root) do
-    # For non-umbrella projects, find the app name from _build.
-    # Use the project root (not CWD) so this works for external projects.
-    pattern = Path.join([project_root, "_build", "test", "lib", "*", ".mix", "compile.elixir"])
+  defp detect_app_from_build(project_root, build_env) do
+    # For non-umbrella projects, find the app name from the build directory.
+    # Use the project root (not CWD) so this works for external projects, and
+    # the sandbox's own build env rather than assuming "test".
+    lib_dir = Path.join([project_build_root(project_root), build_env, "lib"])
 
-    case Path.wildcard(pattern, match_dot: true) do
-      [path | _] ->
-        path
-        |> Path.relative_to(project_root)
-        |> Path.split()
-        |> Enum.at(3)
+    case Path.wildcard(Path.join([lib_dir, "*", ".mix", "compile.elixir"]), match_dot: true) do
+      [path] ->
+        path |> Path.relative_to(lib_dir) |> Path.split() |> List.first()
 
-      [] ->
+      _ ->
+        # Either nothing is built yet, or this is an umbrella and the file path
+        # did not name an app. Guessing would target the wrong one.
         nil
+    end
+  end
+
+  # Mix writes to $MIX_BUILD_ROOT when it is set, so a run started from a task
+  # that sets it does not use `<project>/_build` at all. Copying from the wrong
+  # place leaves the sandbox pointing at the real build directory.
+  defp project_build_root(project_root) do
+    case System.get_env("MIX_BUILD_ROOT") do
+      nil -> Path.join(project_root, "_build")
+      "" -> Path.join(project_root, "_build")
+      root -> Path.expand(root, project_root)
     end
   end
 
@@ -379,7 +418,12 @@ defmodule Muex.Sandbox do
     target_app_build = Path.join([sandbox.root, "_build", sandbox.build_env, "lib", app_name])
 
     source_app_build =
-      Path.join([sandbox.project_root, "_build", sandbox.build_env, "lib", app_name])
+      Path.join([
+        project_build_root(sandbox.project_root),
+        sandbox.build_env,
+        "lib",
+        app_name
+      ])
 
     # If it's a symlink, replace with a deep copy
     case File.read_link(target_app_build) do
