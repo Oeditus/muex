@@ -442,12 +442,101 @@ defmodule Muex.Sandbox do
     # reading the app name out of the build directory.
     case Path.split(normalized) do
       ["apps", app_name | _] -> app_name
-      _ -> detect_app_from_build(project_root, build_env)
+      _ -> app_name_of_project(project_root, build_env)
     end
   end
 
+  # Outside an umbrella every source file belongs to the project's own app, and
+  # the project states that app's name — reading it is exact. Only fall back to
+  # inferring it from the build directory, which cannot tell the app under test
+  # apart from its dependencies.
+  defp app_name_of_project(project_root, build_env) do
+    app_from_loaded_project(project_root) ||
+      app_from_mix_exs(project_root) ||
+      detect_app_from_build(project_root, build_env)
+  end
+
+  # muex runs as a Mix task inside the project it mutates, so Mix has usually
+  # already evaluated its `mix.exs` and holds the canonical value — including
+  # for the `mix.exs` files that compute `:app` rather than writing it out.
+  # Only trust it when the loaded project really is this one (muex can be
+  # pointed at an external project), and never for an umbrella root, whose
+  # `:app` is not the app any source file belongs to.
+  defp app_from_loaded_project(project_root) do
+    if Mix.Project.get() && not Mix.Project.umbrella?() &&
+         same_directory?(Path.dirname(Mix.Project.project_file()), project_root) do
+      to_app_name(Mix.Project.config()[:app])
+    end
+  rescue
+    _ -> nil
+  end
+
+  # Otherwise read the name out of `mix.exs` without evaluating it: the `:app`
+  # entry of `def project`, resolving `app: @app` against the attribute's
+  # definition in the same file.
+  defp app_from_mix_exs(project_root) do
+    with {:ok, source} <- File.read(Path.join(project_root, "mix.exs")),
+         {:ok, ast} <- Code.string_to_quoted(source),
+         value when not is_nil(value) <- project_option(ast, :app) do
+      value |> resolve_attribute(ast) |> to_app_name()
+    else
+      _ -> nil
+    end
+  end
+
+  # Only the options `def project` returns at the top level count. A nested
+  # `app:` is a different option that happens to share the name — `escript:`
+  # takes one — so searching the body for the first `app:` anywhere can answer
+  # with the wrong app whenever the nested one comes first.
+  defp project_option(ast, key) do
+    with {:def, _meta, [{:project, _, _}, [do: body]]} <-
+           find_node(ast, &match?({:def, _meta, [{:project, _, _}, [do: _body]]}, &1)),
+         options when is_list(options) <- project_options(body),
+         {^key, value} <- List.keyfind(options, key, 0) do
+      value
+    else
+      _ -> nil
+    end
+  end
+
+  # `def project` either ends in the options list itself or does so after other
+  # expressions. A body that computes the list instead is not read here; it
+  # falls through to inferring the name from the build directory.
+  defp project_options({:__block__, _meta, expressions}),
+    do: expressions |> List.last() |> project_options()
+
+  defp project_options(options) when is_list(options), do: options
+  defp project_options(_other), do: nil
+
+  defp resolve_attribute({:@, _meta, [{name, _, ctx}]}, ast)
+       when is_atom(name) and is_atom(ctx) do
+    case find_node(ast, &match?({:@, _meta, [{^name, _, [_value]}]}, &1)) do
+      {:@, _meta, [{^name, _, [value]}]} -> value
+      _ -> nil
+    end
+  end
+
+  defp resolve_attribute(value, _ast), do: value
+
+  defp find_node(ast, fun) do
+    {_ast, found} =
+      Macro.prewalk(ast, nil, fn node, acc ->
+        if is_nil(acc) and fun.(node), do: {node, node}, else: {node, acc}
+      end)
+
+    found
+  end
+
+  defp same_directory?(a, b), do: Path.expand(a) == Path.expand(b)
+
+  defp to_app_name(app) when is_atom(app) and not is_nil(app), do: Atom.to_string(app)
+  defp to_app_name(_app), do: nil
+
+  # Last resort, for a project whose name could not be read: infer it from the
+  # build directory. Every compiled dependency leaves the same marker, so this
+  # can only answer when exactly one app is built — which is to say, almost
+  # never once the project has a single dependency.
   defp detect_app_from_build(project_root, build_env) do
-    # For non-umbrella projects, find the app name from the build directory.
     # Use the project root (not CWD) so this works for external projects, and
     # the sandbox's own build env rather than assuming "test".
     lib_dir = Path.join([project_build_root(project_root), build_env, "lib"])
