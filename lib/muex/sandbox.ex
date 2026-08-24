@@ -253,28 +253,88 @@ defmodule Muex.Sandbox do
       # Relativize so the target inside the sandbox is correct.
       relative_path = Path.relative_to(test_path, project_root)
       source = Path.join(project_root, relative_path)
-      target = Path.join(root, relative_path)
 
-      cond do
-        File.dir?(source) ->
-          File.mkdir_p!(Path.dirname(target))
-          # Only symlink if not already mirrored (e.g. apps/supply_chain/test
-          # would already exist from mirror_source_tree on apps/)
-          unless File.exists?(target) do
-            safe_symlink(source, target)
-          end
+      link_path(root, project_root, source)
+      link_test_root_essentials(root, project_root, source)
+    end
+  end
 
-        File.regular?(source) ->
-          # Individual test file — ensure parent dir exists
-          File.mkdir_p!(Path.dirname(target))
+  # Symlinks `source` (a file or directory, absolute, inside project_root)
+  # into the equivalent location under `root`. Idempotent: skips anything
+  # already present at the target (e.g. mirrored by mirror_source_tree, or
+  # linked by an earlier call for an overlapping --test-paths entry).
+  defp link_path(root, project_root, source) do
+    relative_path = Path.relative_to(source, project_root)
+    target = Path.join(root, relative_path)
 
-          unless File.exists?(target) do
-            safe_symlink(source, target)
-          end
+    cond do
+      File.dir?(source) ->
+        File.mkdir_p!(Path.dirname(target))
+        # Only symlink if not already mirrored (e.g. apps/supply_chain/test
+        # would already exist from mirror_source_tree on apps/)
+        unless File.exists?(target) do
+          safe_symlink(source, target)
+        end
 
-        true ->
-          :ok
-      end
+      File.regular?(source) ->
+        # Individual file — ensure parent dir exists
+        File.mkdir_p!(Path.dirname(target))
+
+        unless File.exists?(target) do
+          safe_symlink(source, target)
+        end
+
+      true ->
+        :ok
+    end
+  end
+
+  # `mix help muex` documents narrowing a run with `--test-paths`, e.g. down
+  # to a single file. link_path/3 above only symlinks the requested path, so
+  # a narrowed sandbox can end up missing test/test_helper.exs (and
+  # test/support/, if the project has one) even though the untouched default
+  # run of the whole `test` directory happens to pull both in. `mix test`
+  # aborts before ExUnit starts without a test helper, and every mutant run
+  # then fails identically — silently misclassified as "killed" rather than
+  # "the run never happened". Make the Mix test root that owns the requested
+  # path runnable regardless of how narrow --test-paths is.
+  defp link_test_root_essentials(root, project_root, source) do
+    start_dir = if File.dir?(source), do: source, else: Path.dirname(source)
+
+    case find_test_root(start_dir, project_root) do
+      nil ->
+        :ok
+
+      test_root ->
+        link_path(root, project_root, Path.join(test_root, "test_helper.exs"))
+        link_path(root, project_root, Path.join(test_root, "support"))
+    end
+  end
+
+  # Walk up from `dir` toward (and including) `project_root`, returning the
+  # first ancestor directory that directly contains a test_helper.exs. This
+  # resolves a plain project's test/foo_test.exs (and nested
+  # test/a/b/foo_test.exs) to test/, and an umbrella's
+  # apps/foo/test/bar_test.exs to apps/foo/test/ — the app's own helper, not
+  # the umbrella root. Never escapes above project_root; returns nil (no
+  # crash) when no ancestor has a test_helper.exs, since that's a legitimate
+  # project shape.
+  defp find_test_root(dir, project_root) do
+    project_root = Path.expand(project_root)
+    dir = Path.expand(dir)
+
+    cond do
+      File.regular?(Path.join(dir, "test_helper.exs")) ->
+        dir
+
+      dir == project_root ->
+        nil
+
+      String.starts_with?(dir, project_root <> "/") ->
+        find_test_root(Path.dirname(dir), project_root)
+
+      true ->
+        nil
     end
   end
 

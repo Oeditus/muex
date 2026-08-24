@@ -44,13 +44,22 @@ defmodule Muex.TestRunner.Port do
       {:ok, output, exit_code} ->
         duration_ms = System.monotonic_time(:millisecond) - start_time
 
-        if exit_code != 0 and compile_error?(output) do
-          {:error, {:compile_error, output}}
-        else
-          failures = count_failures(output, exit_code)
+        cond do
+          exit_code != 0 and compile_error?(output) ->
+            {:error, {:compile_error, output}}
 
-          {:ok,
-           %{failures: failures, output: output, exit_code: exit_code, duration_ms: duration_ms}}
+          not has_exunit_summary?(output) ->
+            # The suite produced no summary we can recognise, so we do not know
+            # whether the mutant was detected. Inventing a failure count here
+            # would turn "unmeasured" into a definite verdict; callers classify
+            # `{:error, _}` as :invalid instead.
+            {:error, {:no_test_summary, output}}
+
+          true ->
+            failures = count_failures(output, exit_code)
+
+            {:ok,
+             %{failures: failures, output: output, exit_code: exit_code, duration_ms: duration_ms}}
         end
 
       {:error, reason} ->
@@ -183,26 +192,42 @@ defmodule Muex.TestRunner.Port do
       Regex.match?(@compile_error_pattern, output)
   end
 
+  # Elixir < 1.20 prints "5 tests, 2 failures"; Elixir >= 1.20 prints a
+  # "Result: ..." line ("Result: 1 passed", "Result: 0/2 passed",
+  # "Result: 0 tests, 1 excluded") and the word "failures" nowhere at all.
+  # Both generations must be recognised.
+  @pre_120_summary_pattern ~r/\d+ tests?, \d+ failures?/
+  @post_120_summary_pattern ~r/^Result: /m
+
   defp has_exunit_summary?(output) do
-    Regex.match?(~r/\d+ tests?, \d+ failures?/, output) or
-      String.contains?(output, "0 failures")
+    Regex.match?(@pre_120_summary_pattern, output) or
+      String.contains?(output, "0 failures") or
+      Regex.match?(@post_120_summary_pattern, output)
   end
 
-  defp count_failures(output, _exit_code) do
-    # Always try to parse the actual failure count from output for reporting
-    # accuracy. Fall back to 1 only when parsing fails (e.g. no recognizable
-    # ExUnit summary because something crashed).
-    case Regex.run(~r/(\d+) failures?/, output) do
-      [_, count] ->
-        String.to_integer(count)
+  # Elixir < 1.20 carries the count in the summary line itself
+  # ("5 tests, 2 failures"); Elixir >= 1.20 puts it on its own "Failed: N test(s)"
+  # line and omits the line entirely when nothing failed.
+  @pre_120_failures_pattern ~r/(\d+) failures?/
+  @post_120_failures_pattern ~r/^Failed: (\d+) tests?/m
 
-      nil ->
-        if String.contains?(output, "0 failures") do
-          0
-        else
-          # No ExUnit output at all — something crashed. Treat as killed.
-          1
-        end
+  # Only reached for output that carries a recognisable ExUnit summary; an
+  # unrecognisable run is rejected as {:error, {:no_test_summary, _}} upstream.
+  defp count_failures(output, exit_code) do
+    with nil <- parse_failure_count(@pre_120_failures_pattern, output),
+         nil <- parse_failure_count(@post_120_failures_pattern, output) do
+      # A summary exists but names no failure count ("Result: 3 passed", or
+      # "Result: 0 tests, 1 invalid" after a setup_all crash). The process exit
+      # status is then the only trustworthy signal — the setup_all case reports
+      # no failures yet exits non-zero, so it must not be read as a clean pass.
+      if exit_code == 0, do: 0, else: 1
+    end
+  end
+
+  defp parse_failure_count(pattern, output) do
+    case Regex.run(pattern, output) do
+      [_, count] -> String.to_integer(count)
+      nil -> nil
     end
   end
 end
