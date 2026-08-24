@@ -5,8 +5,10 @@ defmodule Muex.CompilerTest do
   alias Muex.Language.Elixir, as: ElixirLang
   alias Muex.Mutator
   alias Muex.Mutator.Arithmetic
+  alias Muex.Mutator.Boolean
   alias Muex.Mutator.FunctionCall
   alias Muex.Mutator.Literal
+  alias Muex.Mutator.StatementDeletion
 
   defp file_entry(source) do
     %{ast: Code.string_to_quoted!(source), path: "sample.ex"}
@@ -78,6 +80,93 @@ defmodule Muex.CompilerTest do
 
       assert {:ok, source} = Compiler.compile_to_source(mutation, entry, ElixirLang)
       assert source =~ "Map.put(k, m, v)"
+    end
+  end
+
+  describe "apply via compile_to_source/3 - statement deletion" do
+    # StatementDeletion replaces the enclosing `__block__` but reports the
+    # deleted statement's line, so the reported line and the line identifying
+    # the replaced node are different values. Matching on the reported one made
+    # every one of these mutations a no-op: the "mutant" compiled from the
+    # untouched original, and the run scored whatever the original scored.
+    #
+    # Asserting on classification would not catch that — an unmutated mutant
+    # still classifies. These tests assert on the source itself.
+    setup do
+      entry =
+        file_entry("""
+        defmodule Sample do
+          def run(a, b) do
+            x = a + b
+            y = x * 2
+            y - 1
+          end
+        end
+        """)
+
+      {:ok, baseline} = ElixirLang.unparse(entry.ast)
+      mutations = Mutator.walk(entry.ast, [StatementDeletion], %{file: entry.path})
+
+      %{entry: entry, baseline: baseline, mutations: mutations}
+    end
+
+    test "removes the targeted statement", %{entry: entry, mutations: mutations} do
+      mutation = Enum.find(mutations, &(&1.location.line == 3))
+
+      assert {:ok, source} = Compiler.compile_to_source(mutation, entry, ElixirLang)
+      refute source =~ "x = a + b"
+      assert source =~ "y = x * 2"
+      assert source =~ "y - 1"
+    end
+
+    test "every deletion actually changes the source", %{
+      entry: entry,
+      baseline: baseline,
+      mutations: mutations
+    } do
+      assert length(mutations) == 2
+
+      for mutation <- mutations do
+        assert {:ok, source} = Compiler.compile_to_source(mutation, entry, ElixirLang)
+
+        assert source != baseline,
+               "#{mutation.description} produced the original source unchanged"
+      end
+    end
+
+    test "reports the deleted statement's line, not the block's", %{mutations: mutations} do
+      # The reported line is a display value and must keep pointing at the
+      # statement a reader should look at. Application matches on
+      # `:original_line` instead, so the two must not be collapsed back
+      # into one.
+      assert Enum.map(mutations, & &1.location.line) == [3, 4]
+      assert Enum.all?(mutations, &match?({:__block__, _meta, _stmts}, &1.original_ast))
+      assert Enum.all?(mutations, &(&1.original_line == 2))
+    end
+  end
+
+  describe "apply via compile_to_source/3 - bare boolean literals" do
+    # The same defect reached by a different route: a bare `true` carries no
+    # metadata, so `Boolean` reports a line no node sits on (0, today). Matching
+    # on the reported line made these mutations no-ops as well.
+    test "flips a bare boolean whose reported line points at no node" do
+      entry =
+        file_entry("""
+        defmodule Sample do
+          def enabled? do
+            true
+          end
+        end
+        """)
+
+      {:ok, baseline} = ElixirLang.unparse(entry.ast)
+
+      assert [mutation] = Mutator.walk(entry.ast, [Boolean], %{file: entry.path})
+      assert mutation.original_line == 2
+
+      assert {:ok, source} = Compiler.compile_to_source(mutation, entry, ElixirLang)
+      assert source != baseline
+      assert source =~ "false"
     end
   end
 end
