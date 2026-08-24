@@ -45,6 +45,90 @@ defmodule Muex.SandboxTest do
       # _build should exist
       assert File.dir?(Path.join(root, "_build"))
     end
+
+    test "narrowing --test-paths to a single file still links test_helper.exs and support/" do
+      project_root =
+        Path.join(System.tmp_dir!(), "muex_test_project_#{System.system_time(:microsecond)}")
+
+      root = Path.join(System.tmp_dir!(), "muex_test_sandbox_#{System.system_time(:microsecond)}")
+
+      File.mkdir_p!(Path.join(project_root, "lib"))
+      File.mkdir_p!(Path.join(project_root, "test/support"))
+      File.write!(Path.join(project_root, "mix.exs"), "# fake mix.exs")
+      File.write!(Path.join(project_root, "lib/foo.ex"), "defmodule Foo, do: nil")
+      File.write!(Path.join(project_root, "test/test_helper.exs"), "ExUnit.start()")
+      File.write!(Path.join(project_root, "test/foo_test.exs"), "# foo test")
+      File.write!(Path.join(project_root, "test/support/helper.ex"), "defmodule Helper, do: nil")
+
+      on_exit(fn ->
+        File.rm_rf!(root)
+        File.rm_rf!(project_root)
+      end)
+
+      Sandbox.create_sandbox(root, project_root, "test", ["test/foo_test.exs"])
+
+      # The explicitly requested file is linked.
+      assert File.exists?(Path.join(root, "test/foo_test.exs"))
+
+      # The regression this PR fixes: test_helper.exs must be reachable even
+      # though --test-paths named only one file inside test/, otherwise
+      # `mix test` aborts before ExUnit ever starts.
+      assert File.exists?(Path.join(root, "test/test_helper.exs"))
+
+      # support/ code (e.g. shared ExUnit.CaseTemplate modules) must be
+      # reachable too.
+      assert File.exists?(Path.join(root, "test/support/helper.ex"))
+    end
+
+    test "narrowing --test-paths to the whole test/ directory still works" do
+      project_root =
+        Path.join(System.tmp_dir!(), "muex_test_project_#{System.system_time(:microsecond)}")
+
+      root = Path.join(System.tmp_dir!(), "muex_test_sandbox_#{System.system_time(:microsecond)}")
+
+      File.mkdir_p!(Path.join(project_root, "lib"))
+      File.mkdir_p!(Path.join(project_root, "test/support"))
+      File.write!(Path.join(project_root, "mix.exs"), "# fake mix.exs")
+      File.write!(Path.join(project_root, "lib/foo.ex"), "defmodule Foo, do: nil")
+      File.write!(Path.join(project_root, "test/test_helper.exs"), "ExUnit.start()")
+      File.write!(Path.join(project_root, "test/foo_test.exs"), "# foo test")
+      File.write!(Path.join(project_root, "test/support/helper.ex"), "defmodule Helper, do: nil")
+
+      on_exit(fn ->
+        File.rm_rf!(root)
+        File.rm_rf!(project_root)
+      end)
+
+      Sandbox.create_sandbox(root, project_root, "test", ["test"])
+
+      assert File.exists?(Path.join(root, "test/foo_test.exs"))
+      assert File.exists?(Path.join(root, "test/test_helper.exs"))
+      assert File.exists?(Path.join(root, "test/support/helper.ex"))
+    end
+
+    test "a project shape with no test_helper.exs does not raise" do
+      project_root =
+        Path.join(System.tmp_dir!(), "muex_test_project_#{System.system_time(:microsecond)}")
+
+      root = Path.join(System.tmp_dir!(), "muex_test_sandbox_#{System.system_time(:microsecond)}")
+
+      File.mkdir_p!(Path.join(project_root, "lib"))
+      File.mkdir_p!(Path.join(project_root, "test"))
+      File.write!(Path.join(project_root, "mix.exs"), "# fake mix.exs")
+      File.write!(Path.join(project_root, "lib/foo.ex"), "defmodule Foo, do: nil")
+      File.write!(Path.join(project_root, "test/foo_test.exs"), "# foo test")
+
+      on_exit(fn ->
+        File.rm_rf!(root)
+        File.rm_rf!(project_root)
+      end)
+
+      sandbox = Sandbox.create_sandbox(root, project_root, "test", ["test/foo_test.exs"])
+
+      assert sandbox.root == root
+      assert File.exists?(Path.join(root, "test/foo_test.exs"))
+      refute File.exists?(Path.join(root, "test/test_helper.exs"))
+    end
   end
 
   describe "apply_mutation/4 and restore/2" do
