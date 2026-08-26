@@ -117,7 +117,7 @@ defmodule Muex.FileAnalyzer do
 
   # Check if module is a behaviour definition
   defp behaviour_definition?(ast) do
-    has_behaviour_directive?(ast) or has_many_callbacks?(ast)
+    has_many_callbacks?(ast)
   end
 
   # Check if module is a protocol
@@ -163,20 +163,6 @@ defmodule Muex.FileAnalyzer do
           else
             {:ok, false}
           end
-
-        node, acc ->
-          {node, acc}
-      end)
-
-    found
-  end
-
-  # Check if AST has @behaviour directive
-  defp has_behaviour_directive?(ast) do
-    {_, found} =
-      Macro.prewalk(ast, false, fn
-        {:@, _, [{:behaviour, _, _}]}, _acc ->
-          {:ok, true}
 
         node, acc ->
           {node, acc}

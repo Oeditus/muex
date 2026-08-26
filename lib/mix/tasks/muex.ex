@@ -68,10 +68,17 @@ defmodule Mix.Tasks.Muex do
           {:error, reason} ->
             Mix.raise(reason)
 
-          {:ok, %{results: []}} ->
-            # No mutations were generated (e.g. --since with no mutable changes).
-            # There is nothing to score, so the run passes the gate.
+          {:ok, %{results: [], score_low: score_low, score_high: score_high}} ->
             Mix.shell().info("No mutations to test; nothing to score.")
+
+            if score_low < config.fail_at do
+              score_str =
+                if score_low == score_high,
+                  do: "#{score_low}%",
+                  else: "#{score_low}%..#{score_high}%"
+
+              Mix.raise("Mutation score #{score_str} is below threshold #{config.fail_at}%")
+            end
 
           {:ok, %{score_low: score_low, score_high: score_high}} ->
             # Use the pessimistic (low) bound for threshold comparison.

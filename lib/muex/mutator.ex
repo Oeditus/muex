@@ -63,13 +63,16 @@ defmodule Muex.Mutator do
   @typedoc """
   Represents a single mutation with its metadata.
 
-  The `:equivalent` key is optional. When `true`, the mutation is considered
-  semantically equivalent to the original and will be filtered out by the optimizer.
+  The `:equivalent`, `:original_ast`, and `:original_line` keys are optional.
+  `walk/3` annotates mutations with `:original_ast` and `:original_line`.
+  When `:equivalent` is `true`, the mutation is considered semantically equivalent
+  to the original and will be filtered out by the optimizer.
   """
   @type mutation :: %{
+          optional(:original_ast) => term(),
+          optional(:original_line) => non_neg_integer(),
+          optional(:equivalent) => boolean(),
           ast: term(),
-          original_ast: term(),
-          original_line: non_neg_integer(),
           mutator: module(),
           description: String.t(),
           location: %{file: String.t(), line: non_neg_integer()}
@@ -246,7 +249,7 @@ defmodule Muex.Mutator do
   defp annotate(mutation, node, context) do
     mutation
     |> Map.put(:original_ast, node)
-    |> Map.put(:original_line, Map.get(context, :line, 0))
+    |> Map.put(:original_line, Map.get(context, :line) || 0)
   end
 
   # Call with an atom form: descend into args only. This mirrors
