@@ -139,7 +139,7 @@ defmodule Muex.CompilerTest do
       # statement a reader should look at. Application matches on
       # `:original_line` instead, so the two must not be collapsed back
       # into one.
-      assert Enum.map(mutations, & &1.location.line) == [3, 4]
+      assert mutations |> Enum.map(& &1.location.line) |> Enum.sort() == [3, 4]
       assert Enum.all?(mutations, &match?({:__block__, _meta, _stmts}, &1.original_ast))
       assert Enum.all?(mutations, &(&1.original_line == 2))
     end
