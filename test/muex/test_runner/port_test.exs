@@ -253,7 +253,7 @@ defmodule Muex.TestRunner.PortTest do
   end
 
   describe "compile error regex" do
-    @compile_error_pattern ~r/\*\* \(\w*(?:Error|Missing\w*)\)/
+    @compile_error_pattern ~r/\*\* \([\w.]*(?:Error|Missing[\w.]*)\)/
 
     test "matches common Elixir compilation exceptions" do
       assert Regex.match?(@compile_error_pattern, "** (CompileError) lib/foo.ex:1")
@@ -261,6 +261,8 @@ defmodule Muex.TestRunner.PortTest do
       assert Regex.match?(@compile_error_pattern, "** (TokenMissingError) lib/foo.ex:1")
       assert Regex.match?(@compile_error_pattern, "** (ArgumentError) bad argument")
       assert Regex.match?(@compile_error_pattern, "** (UndefinedFunctionError) undefined")
+      assert Regex.match?(@compile_error_pattern, "** (File.Error) could not read file")
+      assert Regex.match?(@compile_error_pattern, "** (Jason.DecodeError) invalid json")
     end
 
     test "does not match non-error output" do

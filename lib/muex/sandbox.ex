@@ -306,8 +306,15 @@ defmodule Muex.Sandbox do
         :ok
 
       test_root ->
-        link_path(root, project_root, Path.join(test_root, "test_helper.exs"))
-        link_path(root, project_root, Path.join(test_root, "support"))
+        case File.ls(test_root) do
+          {:ok, entries} ->
+            for entry <- entries do
+              link_path(root, project_root, Path.join(test_root, entry))
+            end
+
+          {:error, _} ->
+            :ok
+        end
     end
   end
 

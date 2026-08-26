@@ -54,11 +54,13 @@ defmodule Muex.SandboxTest do
 
       File.mkdir_p!(Path.join(project_root, "lib"))
       File.mkdir_p!(Path.join(project_root, "test/support"))
+      File.mkdir_p!(Path.join(project_root, "test/fixtures"))
       File.write!(Path.join(project_root, "mix.exs"), "# fake mix.exs")
       File.write!(Path.join(project_root, "lib/foo.ex"), "defmodule Foo, do: nil")
       File.write!(Path.join(project_root, "test/test_helper.exs"), "ExUnit.start()")
       File.write!(Path.join(project_root, "test/foo_test.exs"), "# foo test")
       File.write!(Path.join(project_root, "test/support/helper.ex"), "defmodule Helper, do: nil")
+      File.write!(Path.join(project_root, "test/fixtures/data.json"), "1 10")
 
       on_exit(fn ->
         File.rm_rf!(root)
@@ -78,6 +80,9 @@ defmodule Muex.SandboxTest do
       # support/ code (e.g. shared ExUnit.CaseTemplate modules) must be
       # reachable too.
       assert File.exists?(Path.join(root, "test/support/helper.ex"))
+
+      # Fixture directories/files in test_root must be reachable too.
+      assert File.exists?(Path.join(root, "test/fixtures/data.json"))
     end
 
     test "narrowing --test-paths to the whole test/ directory still works" do

@@ -186,7 +186,7 @@ defmodule Muex.TestRunner.Port do
   # The key signal is: non-zero exit with no ExUnit summary in the output.
   # We also check for Elixir exception patterns (CompileError, SyntaxError,
   # TokenMissingError, etc.) to avoid false positives from other non-test crashes.
-  @compile_error_pattern ~r/\*\* \(\w*(?:Error|Missing\w*)\)/
+  @compile_error_pattern ~r/\*\* \([\w.]*(?:Error|Missing[\w.]*)\)/
   defp compile_error?(output) do
     not has_exunit_summary?(output) and
       Regex.match?(@compile_error_pattern, output)

@@ -566,7 +566,7 @@ defmodule Muex.WorkerPool do
   defp classify_test_result({:ok, %{failures: 0}}), do: :survived
   defp classify_test_result({:ok, %{failures: _}}), do: :killed
   defp classify_test_result({:error, :timeout}), do: :timeout
-  defp classify_test_result({:error, _}), do: :invalid
+  defp classify_test_result({:error, reason}), do: {:invalid, reason}
 
   # Convert absolute test file paths to relative so `mix test` (running in
   # the sandbox, which mirrors the project root) can resolve them.
