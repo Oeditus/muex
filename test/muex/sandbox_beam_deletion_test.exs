@@ -41,6 +41,14 @@ defmodule Muex.SandboxBeamDeletionTest do
     ebin
   end
 
+  # A compiled dependency: the same `.mix/compile.elixir` marker the app under
+  # test has, which is what makes counting those markers ambiguous.
+  defp build_dep(project, env, name) do
+    File.mkdir_p!(Path.join([project, "_build", env, "lib", name, "ebin"]))
+    File.mkdir_p!(Path.join([project, "_build", env, "lib", name, ".mix"]))
+    File.write!(Path.join([project, "_build", env, "lib", name, ".mix", "compile.elixir"]), "")
+  end
+
   defp project_beam(project, env, name),
     do: Path.join([project, "_build", env, "lib", @app, "ebin", name])
 
@@ -170,5 +178,81 @@ defmodule Muex.SandboxBeamDeletionTest do
 
     assert File.exists?(Path.join(ebin, beam)),
            "the build root in use must not be mutated through a symlink"
+  end
+
+  # A project with dependencies has more than one app under `_build/<env>/lib`,
+  # which is the normal case rather than an exotic one — muex's own install line
+  # (`only: [:dev, :test]`) puts muex and jason there. Counting build
+  # directories cannot name the app under test in that situation; the app name
+  # has to come from the project itself.
+  test "resolves the app name when dependencies are built alongside it",
+       %{project: project, sandbox_root: root} do
+    beam = "#{@module}.beam"
+    build_app(project, "test", [beam])
+    build_dep(project, "test", "jason")
+    build_dep(project, "test", "muex")
+
+    write_mix_exs(project, "[app: @app, version: \"0.1.0\", elixir: \"~> 1.14\"]")
+
+    assert_own_build_copy(project, root, beam)
+  end
+
+  # `:app` is not unique to the project's own options: `escript:` takes one too.
+  # Reading the first `app:` found anywhere in `def project` would answer with
+  # that one whenever it comes first.
+  test "reads the project's own app name, not a nested one",
+       %{project: project, sandbox_root: root} do
+    beam = "#{@module}.beam"
+    build_app(project, "test", [beam])
+    build_dep(project, "test", "jason")
+    build_dep(project, "test", "muex")
+
+    write_mix_exs(project, """
+    [
+            escript: [main_module: DemoApp.CLI, app: :something_else],
+            app: @app,
+            version: "0.1.0"
+          ]\
+    """)
+
+    assert_own_build_copy(project, root, beam)
+  end
+
+  defp write_mix_exs(project, options) do
+    File.write!(Path.join(project, "mix.exs"), """
+    defmodule DemoApp.MixProject do
+      use Mix.Project
+
+      @app :#{@app}
+
+      def project do
+        #{options}
+      end
+    end
+    """)
+  end
+
+  defp assert_own_build_copy(project, root, beam) do
+    sandbox = Sandbox.create_sandbox(root, project, "test", [])
+
+    assert {:ok, _} =
+             Sandbox.apply_mutation(
+               sandbox,
+               "lib/thing.ex",
+               "defmodule Demo.Thing do\n  def x, do: 1\nend\n",
+               @module
+             )
+
+    sandbox_app = Path.join([root, "_build", "test", "lib", @app])
+
+    assert File.dir?(sandbox_app) and match?({:error, _}, File.read_link(sandbox_app)),
+           "the sandbox must hold its own copy; a symlink means every worker " <>
+             "compiles into the project's real build directory"
+
+    refute File.exists?(Path.join([sandbox_app, "ebin", beam])),
+           "the sandbox's own stale beam should be gone"
+
+    assert File.exists?(project_beam(project, "test", beam)),
+           "the project's compiled module must survive"
   end
 end
