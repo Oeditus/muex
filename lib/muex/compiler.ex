@@ -138,9 +138,23 @@ defmodule Muex.Compiler do
   defp apply_mutation(ast, mutation) do
     original_ast = Map.get(mutation, :original_ast)
     mutated_ast = Map.get(mutation, :ast)
-    target_line = get_in(mutation, [:location, :line])
+    transform(ast, 0, original_ast, mutated_ast, match_line(mutation))
+  end
 
-    transform(ast, 0, original_ast, mutated_ast, target_line)
+  # The line that identifies the node to replace, which is not necessarily the
+  # line the mutation reports. `location.line` is a display value: a mutator may
+  # point it at the source position a reader should look at rather than at the
+  # node being swapped — StatementDeletion reports the deleted statement's line
+  # while the node it replaces is the enclosing `__block__`. Using the reported
+  # line as the match key makes those mutations match nothing, so the "mutant"
+  # is the untouched original. `Muex.Mutator.walk/3` records the matched node's
+  # own line as `:original_line`; fall back to the reported line for mutations
+  # built by hand (tests, external callers) that carry no such annotation.
+  defp match_line(mutation) do
+    case Map.get(mutation, :original_line) do
+      nil -> get_in(mutation, [:location, :line])
+      line -> line
+    end
   end
 
   # Walk the AST while tracking the nearest enclosing source line, replacing

@@ -69,6 +69,7 @@ defmodule Muex.Mutator do
   @type mutation :: %{
           ast: term(),
           original_ast: term(),
+          original_line: non_neg_integer(),
           mutator: module(),
           description: String.t(),
           location: %{file: String.t(), line: non_neg_integer()}
@@ -202,7 +203,8 @@ defmodule Muex.Mutator do
   ## Returns
 
     List of all mutations found in the AST. Each mutation is augmented with
-    `:original_ast` (the matched node), used later during application.
+    `:original_ast` (the matched node) and `:original_line` (that node's own
+    line), both used later during application.
   """
   @spec walk(ast :: term(), mutators :: [module()], context :: map()) :: [mutation()]
   def walk(ast, mutators, context) do
@@ -229,8 +231,22 @@ defmodule Muex.Mutator do
     Enum.flat_map(mutators, fn mutator ->
       node
       |> mutator.mutate(context)
-      |> Enum.map(&Map.put(&1, :original_ast, node))
+      |> Enum.map(&annotate(&1, node, context))
     end)
+  end
+
+  # Record what a mutation needs at application time: the matched node itself,
+  # and the line that identifies it. The two are separate values on purpose.
+  # `location.line` is what the report shows, and a mutator may deliberately
+  # point it somewhere other than the matched node — StatementDeletion reports
+  # the deleted statement's line while the node it replaces is the enclosing
+  # block. `:original_line` is the matched node's own line (the enclosing line
+  # when the node carries no metadata of its own), which is what
+  # `Muex.Compiler` matches on.
+  defp annotate(mutation, node, context) do
+    mutation
+    |> Map.put(:original_ast, node)
+    |> Map.put(:original_line, Map.get(context, :line, 0))
   end
 
   # Call with an atom form: descend into args only. This mirrors
