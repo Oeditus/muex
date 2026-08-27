@@ -132,6 +132,50 @@ defmodule Muex.Mutator.WalkTest do
       refute Enum.any?(mutations, &(&1.original_ast == :timeout))
       assert Enum.any?(mutations, &(&1.original_ast == 5))
     end
+
+    test "the `|` of a map update is skipped but its operands are mutated" do
+      ast =
+        ast!("""
+        defmodule Sample do
+          def bump(state), do: %{state | count: state.count + 1}
+        end
+        """)
+
+      mutations = Mutator.walk(ast, [Literal, FunctionCall, Arithmetic], %{file: "s.ex"})
+
+      refute Enum.any?(mutations, &match?({:|, _meta, _args}, &1.original_ast))
+      assert Enum.any?(mutations, &match?({:+, _meta, _args}, &1.original_ast))
+      assert Enum.any?(mutations, &(&1.original_ast == 1))
+    end
+
+    test "the `|` of a struct update is skipped" do
+      ast =
+        ast!("""
+        defmodule Sample do
+          def bump(state), do: %Sample.State{state | count: 1}
+        end
+        """)
+
+      mutations = Mutator.walk(ast, [Literal, FunctionCall], %{file: "s.ex"})
+
+      refute Enum.any?(mutations, &match?({:|, _meta, _args}, &1.original_ast))
+      assert Enum.any?(mutations, &(&1.original_ast == 1))
+    end
+
+    test "the `|` of a list cons is still mutated" do
+      # `[head | tail]` is a different node in a different position: swapping
+      # its arguments unparses and compiles, so it stays a real mutation.
+      ast =
+        ast!("""
+        defmodule Sample do
+          def prepend(head, tail), do: [head | tail]
+        end
+        """)
+
+      mutations = Mutator.walk(ast, [FunctionCall], %{file: "s.ex"})
+
+      assert Enum.any?(mutations, &match?({:|, _meta, _args}, &1.original_ast))
+    end
   end
 
   describe "configurable skip_calls" do

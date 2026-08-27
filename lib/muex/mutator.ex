@@ -252,6 +252,18 @@ defmodule Muex.Mutator do
     |> Map.put(:original_line, Map.get(context, :line) || 0)
   end
 
+  # Map/struct update: `%{subject | key: value}`, and the inner `%{}` of
+  # `%Struct{subject | key: value}`. The `|` here is the update special form,
+  # not a call, and `%{}` accepts it in exactly one shape: subject on the left,
+  # pairs on the right. Mutating the node itself breaks that shape — swapping
+  # its arguments yields `%{[key: value] | subject}`, which no parser produces
+  # and `Code.Normalizer` refuses to unparse. Visit the operands, never the
+  # `|` node.
+  defp collect_children({:%{}, _meta, [{:|, _, [subject, pairs]}]}, mutators, context, skip_calls) do
+    collect(subject, mutators, context, skip_calls) ++
+      collect_args(pairs, mutators, context, skip_calls)
+  end
+
   # Call with an atom form: descend into args only. This mirrors
   # `Macro.traverse/4`, which does not visit the call name itself.
   defp collect_children({form, _meta, args}, mutators, context, skip_calls)

@@ -169,4 +169,65 @@ defmodule Muex.CompilerTest do
       assert source =~ "false"
     end
   end
+
+  describe "apply via compile_to_source/3 - map updates" do
+    # `%{subject | key: value}` puts a `|` node inside `%{}`, and `%{}` accepts
+    # it in exactly one shape. FunctionCall used to treat that `|` as a call and
+    # swap its arguments, producing `%{[key: value] | subject}` — an AST no
+    # parser produces. Unparsing it raised FunctionClauseError out of
+    # `Code.Normalizer.normalize_kw_args/3`, so the mutation could not even be
+    # written to the sandbox.
+    test "every mutation of a map update unparses" do
+      entry =
+        file_entry("""
+        defmodule Sample do
+          def bump(state), do: %{state | count: state.count + 1}
+        end
+        """)
+
+      mutations = Mutator.walk(entry.ast, [FunctionCall], %{file: entry.path})
+
+      for mutation <- mutations do
+        assert {:ok, _source} = Compiler.compile_to_source(mutation, entry, ElixirLang),
+               "#{mutation.description} failed to unparse"
+      end
+    end
+
+    test "every mutation of a struct update unparses" do
+      entry =
+        file_entry("""
+        defmodule Sample do
+          def bump(state), do: %Sample.State{state | count: 1}
+        end
+        """)
+
+      mutations = Mutator.walk(entry.ast, [FunctionCall], %{file: entry.path})
+
+      for mutation <- mutations do
+        assert {:ok, _source} = Compiler.compile_to_source(mutation, entry, ElixirLang),
+               "#{mutation.description} failed to unparse"
+      end
+    end
+
+    test "a list cons is still swapped, and the result unparses" do
+      entry =
+        file_entry("""
+        defmodule Sample do
+          def prepend(head, tail), do: [head | tail]
+        end
+        """)
+
+      {:ok, baseline} = ElixirLang.unparse(entry.ast)
+
+      mutation =
+        entry.ast
+        |> Mutator.walk([FunctionCall], %{file: entry.path})
+        |> Enum.find(&String.contains?(&1.description, "swap arguments in |()"))
+
+      assert mutation, "the list cons swap must survive"
+      assert {:ok, source} = Compiler.compile_to_source(mutation, entry, ElixirLang)
+      assert source != baseline
+      assert source =~ "[tail | head]"
+    end
+  end
 end
