@@ -259,11 +259,17 @@ defmodule Muex.Mutator do
   # its arguments yields `%{[key: value] | subject}`, which no parser produces
   # and `Code.Normalizer` refuses to unparse. Visit the operands, never the
   # `|` node.
-defp collect_children({:%{}, _meta, [{:|, pipe_meta, [subject, pairs]}]}, mutators, context, skip_calls) do
-  context = update_line(context, {:|, pipe_meta, []})
-  collect(subject, mutators, context, skip_calls) ++
-    collect_args(pairs, mutators, context, skip_calls)
-end
+  defp collect_children(
+         {:%{}, _meta, [{:|, pipe_meta, [subject, pairs]}]},
+         mutators,
+         context,
+         skip_calls
+       ) do
+    context = update_line(context, {:|, pipe_meta, []})
+
+    collect(subject, mutators, context, skip_calls) ++
+      collect_args(pairs, mutators, context, skip_calls)
+  end
 
   # Call with an atom form: descend into args only. This mirrors
   # `Macro.traverse/4`, which does not visit the call name itself.
