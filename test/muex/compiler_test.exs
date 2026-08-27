@@ -147,8 +147,8 @@ defmodule Muex.CompilerTest do
 
   describe "apply via compile_to_source/3 - bare boolean literals" do
     # The same defect reached by a different route: a bare `true` carries no
-    # metadata, so `Boolean` reports a line no node sits on (0, today). Matching
-    # on the reported line made these mutations no-ops as well.
+    # metadata of its own, so its reported line is inherited from the enclosing
+    # node. Matching on the reported line made these mutations no-ops as well.
     test "flips a bare boolean whose reported line points at no node" do
       entry =
         file_entry("""
