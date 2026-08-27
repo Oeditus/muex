@@ -158,6 +158,43 @@ defmodule Muex.Mutator.BooleanTest do
     end
   end
 
+  describe "mutate/2 - context line" do
+    test "uses the enclosing line from context for a bare true" do
+      assert [mutation] = Boolean.mutate(true, %{file: "test.ex", line: 12})
+      assert mutation.location.line == 12
+    end
+
+    test "uses the enclosing line from context for a bare false" do
+      assert [mutation] = Boolean.mutate(false, %{file: "test.ex", line: 9})
+      assert mutation.location.line == 9
+    end
+
+    test "defaults the line to 0 when context has none" do
+      assert [mutation] = Boolean.mutate(true, %{file: "test.ex"})
+      assert mutation.location.line == 0
+    end
+  end
+
+  describe "walk/3 integration" do
+    test "boolean literals in real source report a line, not 0" do
+      ast =
+        Code.string_to_quoted!("""
+        defmodule Sample do
+          def enabled?, do: true
+
+          def disabled?, do: false
+        end
+        """)
+
+      mutations = Muex.Mutator.walk(ast, [Boolean], %{file: "sample.ex"})
+      lines = mutations |> Enum.map(& &1.location.line) |> Enum.sort()
+
+      # `true` is on line 2, `false` on line 4 of the source above.
+      assert lines == [2, 4]
+      refute 0 in lines
+    end
+  end
+
   describe "name/0" do
     test "returns mutator name" do
       assert "Boolean" = Boolean.name()

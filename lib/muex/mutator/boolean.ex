@@ -38,10 +38,10 @@ defmodule Muex.Mutator.Boolean do
         [build_mutation({:&&, meta, args}, "|| to &&", context, Keyword.get(meta, :line, 0))]
 
       true ->
-        [build_mutation(false, "true to false", context, 0)]
+        [build_mutation(false, "true to false", context, Map.get(context, :line, 0))]
 
       false ->
-        [build_mutation(true, "false to true", context, 0)]
+        [build_mutation(true, "false to true", context, Map.get(context, :line, 0))]
 
       {:not, meta, [arg]} ->
         line = Keyword.get(meta, :line, 0)
