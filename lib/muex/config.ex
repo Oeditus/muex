@@ -523,10 +523,27 @@ defmodule Muex.Config do
   # the first --files path to find the nearest mix.exs.
   defp resolve_project_root(nil, files) do
     first_path = List.first(files) || "lib"
-    find_mix_project_root(Path.expand(first_path))
+    first_path |> Path.expand() |> find_mix_project_root() |> umbrella_root()
   end
 
   defp resolve_project_root(explicit, _files), do: Path.expand(explicit)
+
+  # The nearest mix.exs above a file in an umbrella child is the child's own,
+  # so `--app my_app` would make apps/my_app the project root. Its sandbox
+  # would then hold that one app, and the app's
+  # `config_path: "../../config/config.exs"` would point outside it. When the
+  # project found sits at <root>/apps/<app> and <root> has a mix.exs, the
+  # umbrella root is the project.
+  defp umbrella_root(dir) do
+    apps_dir = Path.dirname(dir)
+    root = Path.dirname(apps_dir)
+
+    if Path.basename(apps_dir) == "apps" and File.regular?(Path.join(root, "mix.exs")) do
+      root
+    else
+      dir
+    end
+  end
 
   defp find_mix_project_root(path) do
     # If `path` is a file, start from its parent directory

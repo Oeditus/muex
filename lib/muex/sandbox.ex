@@ -7,27 +7,36 @@ defmodule Muex.Sandbox do
   allows multiple `mix test` processes to run simultaneously without
   seeing each other's mutations.
 
-  Supports both standard Mix projects and umbrella projects. For umbrellas,
-  the `apps/` directory is mirrored (not `lib/`), and only the specific app
-  being mutated has its `_build` artifacts deep-copied.
+  Supports both standard Mix projects and umbrella projects.
 
   ## Structure (umbrella)
 
-      sandbox/
-      ├── mix.exs          → symlink to project
-      ├── mix.lock         → symlink to project
-      ├── config/          → symlink to project
-      ├── deps/            → symlink to project
-      ├── apps/            → mirrored directory of symlinks
-      │   └── my_app/lib/  → directory of symlinks, except:
-      │       └── mutated.ex → real file with mutated source
-      └── _build/          → symlinks + deep copy of mutated app
+      worker_N/
+      ├── <siblings of the project dir>  → symlink (all but .git)
+      └── <project dir name>/
+          ├── mix.exs, config/, deps/, ...  → symlink to project
+          │                   (every top-level entry except apps/ and _build/)
+          ├── apps/          → copy-on-write clone of the project's apps/
+          │   └── my_app/lib/mutated.ex → overwritten with the mutated source
+          └── _build/<env>/  → copy-on-write clone, compiled once when the
+                               pool is created (see create_pool/2)
   """
 
+  defmodule Error do
+    @moduledoc """
+    Raised when a run cannot give a trustworthy verdict: a sandbox does not
+    compile, the selected tests fail with no mutation applied, a target file
+    is not private to the sandbox, or a mutant has no test to judge it.
+    `mix muex` reports the reason and scores nothing.
+    """
+    defexception [:message]
+  end
+
   @type sandbox :: %{
-          root: Path.t(),
-          project_root: Path.t(),
-          build_env: String.t()
+          required(:root) => Path.t(),
+          required(:project_root) => Path.t(),
+          required(:build_env) => String.t(),
+          optional(:base) => Path.t()
         }
 
   @doc """
@@ -48,10 +57,111 @@ defmodule Muex.Sandbox do
 
     File.mkdir_p!(base_dir)
 
-    for i <- 1..count do
-      root = Path.join(base_dir, "worker_#{i}")
-      create_sandbox(root, project_root, build_env, test_paths)
+    # Whatever fails while the pool is built or warmed (a cp error, a compile
+    # error, anything), the partial tree goes with it: the caller has no
+    # sandbox list yet to clean up.
+    try do
+      build_pool!(count, base_dir, project_root, build_env, test_paths)
+    rescue
+      e ->
+        File.rm_rf(base_dir)
+        reraise e, __STACKTRACE__
     end
+  end
+
+  defp build_pool!(count, base_dir, project_root, build_env, test_paths) do
+    sandboxes =
+      for i <- 1..count do
+        worker_dir = Path.join(base_dir, "worker_#{i}")
+
+        if umbrella?(project_root) do
+          # The umbrella lands under its own directory name, beside links to
+          # everything next to it. See link_project_siblings/2.
+          root = Path.join(worker_dir, Path.basename(project_root))
+          sandbox = create_sandbox(root, project_root, build_env, test_paths)
+          link_project_siblings(worker_dir, project_root)
+          Map.put(sandbox, :base, base_dir)
+        else
+          worker_dir
+          |> create_sandbox(project_root, build_env, test_paths)
+          |> Map.put(:base, base_dir)
+        end
+      end
+
+    # Compile every umbrella sandbox once, before the first mutant, so that
+    # compile is not charged to the per-mutant timeout.
+    if umbrella?(project_root) do
+      warm_up!(sandboxes, base_dir)
+    end
+
+    sandboxes
+  end
+
+  @doc """
+  Raises `Muex.Sandbox.Error` if any file cannot be mutated safely.
+
+  In an umbrella sandbox only `apps/` is a private copy; every other
+  top-level entry is a link to the real project. A mutant of `lib/foo.ex` or
+  `config/x.exs` would be written through that link into the real file, and
+  `restore/2` would then delete it. Such targets are refused before any
+  sandbox exists. Outside an umbrella this always returns `:ok`.
+  """
+  @spec check_targets!(Path.t(), [Path.t()]) :: :ok
+  def check_targets!(project_root, files) do
+    if umbrella?(project_root) do
+      outside =
+        Enum.reject(files, fn file ->
+          match?(["apps", _app, _ | _], Path.split(Path.relative_to(file, project_root))) and
+            ".." not in Path.split(file)
+        end)
+
+      if outside != [] do
+        raise Error, """
+        muex: in an umbrella only files under apps/<app>/ can be mutated; these
+        are outside it, and the sandbox shares them with the real project:
+        #{Enum.join(outside, "\n")}
+        """
+      end
+    end
+
+    :ok
+  end
+
+  # A second guard, for apply_mutation/4 and restore/2: the target and every
+  # directory between it and the sandbox root must be real entries of the
+  # sandbox, never a link out of it. A file that is itself a link (the
+  # plain-project layout) is fine: File.rm/1 removes the link, not its target.
+  defp private_path?(sandbox, original_path) do
+    root = Path.expand(sandbox.root)
+    target = Path.expand(original_path, root)
+
+    String.starts_with?(target, root <> "/") and
+      target
+      |> Path.dirname()
+      |> Path.relative_to(root)
+      |> Path.split()
+      |> Enum.scan(&Path.join(&2, &1))
+      |> Enum.all?(fn rel ->
+        not match?({:ok, %File.Stat{type: :symlink}}, File.lstat(Path.join(root, rel)))
+      end)
+  end
+
+  # Tests may read files beside the Mix project, not only inside it: an
+  # umbrella kept in a subdirectory of a repository often has tests that read
+  # `../some_dir/file`, or climb to the repository root and come back down
+  # through the umbrella's own directory name. In a bare sandbox those paths
+  # are missing, the test fails on every run, and that failure "kills" every
+  # mutant it judges. So the sandbox's parent mirrors the project's parent:
+  # everything there is linked except `.git`, so nothing run in a sandbox can
+  # reach the real git index.
+  defp link_project_siblings(worker_dir, project_root) do
+    parent = Path.dirname(project_root)
+    own = Path.basename(project_root)
+
+    parent
+    |> File.ls!()
+    |> Enum.reject(&(&1 in [own, ".git"]))
+    |> Enum.each(&safe_symlink(Path.join(parent, &1), Path.join(worker_dir, &1)))
   end
 
   @doc """
@@ -61,20 +171,26 @@ defmodule Muex.Sandbox do
   def create_sandbox(root, project_root, build_env, test_paths) do
     File.mkdir_p!(root)
 
+    if umbrella?(project_root) do
+      # A private clone of the whole umbrella. See create_umbrella_sandbox/3.
+      create_umbrella_sandbox(root, project_root, build_env)
+      link_test_paths(root, project_root, test_paths)
+    else
+      create_project_sandbox(root, project_root, build_env, test_paths)
+    end
+
+    %{root: root, project_root: project_root, build_env: build_env}
+  end
+
+  @doc false
+  @spec umbrella?(Path.t()) :: boolean()
+  def umbrella?(project_root), do: File.dir?(Path.join(project_root, "apps"))
+
+  defp create_project_sandbox(root, project_root, build_env, test_paths) do
     # Symlink top-level files
     symlink_top_level(root, project_root)
 
-    umbrella? = File.dir?(Path.join(project_root, "apps"))
-
-    if umbrella? do
-      # For umbrellas: create apps/ dir and symlink each app as a whole.
-      # apply_mutation/4 will lazily replace the specific app's symlink
-      # with a file-level mirror when a mutation targets it. This avoids
-      # creating 100K+ symlinks for large umbrella projects.
-      setup_umbrella_apps(root, project_root)
-    else
-      mirror_source_tree(root, project_root, "lib")
-    end
+    mirror_source_tree(root, project_root, "lib")
 
     # Symlink test directories (for explicit --test-paths)
     link_test_paths(root, project_root, test_paths)
@@ -86,8 +202,104 @@ defmodule Muex.Sandbox do
     # apply_mutation/4 handles deep-copying the specific app's build
     # artifacts on demand.
     setup_build_dir(root, project_root, build_env)
+  end
 
-    %{root: root, project_root: project_root, build_env: build_env}
+  # Why the umbrella is cloned rather than linked app by app: an app that is a
+  # directory symlink resolves its in_umbrella deps (`path: "../sibling"`)
+  # through the link to the REAL project, while the sandbox root sees
+  # `sandbox/apps/sibling`. Mix then reports the root "overriding a child
+  # dependency", marks every dep as not locked, and under `--no-deps-check`
+  # loads no dep code paths at all, so every mutant comes back :invalid. And a
+  # `_build` entry that is a symlink lets a recompile write into the real
+  # build.
+  #
+  # So everything that is compiled or written is a private copy-on-write
+  # clone (all of `apps/` and all of `_build/<env>`), and every other
+  # top-level entry is linked, so paths the umbrella reads outside `apps/`
+  # (a native path dependency, say) resolve. `deps/` stays a link: it is only
+  # read.
+  defp create_umbrella_sandbox(root, project_root, build_env) do
+    build_root = project_build_root(project_root)
+
+    project_root
+    |> File.ls!()
+    |> Enum.reject(&(&1 in ["apps", "_build"] or Path.join(project_root, &1) == build_root))
+    |> Enum.each(&safe_symlink(Path.join(project_root, &1), Path.join(root, &1)))
+
+    clone_tree!(Path.join(project_root, "apps"), Path.join(root, "apps"))
+
+    source_build = Path.join(build_root, build_env)
+    target_build = Path.join([root, "_build", build_env])
+    File.mkdir_p!(Path.dirname(target_build))
+
+    if File.dir?(source_build) do
+      clone_tree!(source_build, target_build)
+    else
+      File.mkdir_p!(Path.join(target_build, "lib"))
+    end
+  end
+
+  # Copy-on-write clone (where the filesystem supports it) that keeps
+  # modification times, so build tools do not see every file as just changed.
+  defp clone_tree!(source, target) do
+    case :os.type() do
+      {:unix, :darwin} ->
+        cp!(["-Rcp", source, target])
+
+      {:unix, _} ->
+        cp!(["-R", "--reflink=auto", "--preserve=mode,timestamps", source, target])
+
+      _ ->
+        File.cp_r!(source, target)
+        :ok
+    end
+  end
+
+  defp cp!(args) do
+    case System.cmd("cp", args, stderr_to_stdout: true) do
+      {_, 0} ->
+        :ok
+
+      {output, status} ->
+        raise "muex: cp #{Enum.join(args, " ")} failed (exit #{status}): #{output}"
+    end
+  end
+
+  # A cloned build sits at a new absolute path, so its first `mix compile`
+  # rebuilds the whole umbrella (native code included). Left to the first
+  # mutant's `mix test`, that compile runs inside the per-mutant timeout and is
+  # killed. Compile each sandbox here instead, one at a time, because each of
+  # these compiles already uses every core.
+  #
+  # A sandbox that will not compile would turn every mutant :invalid, which
+  # reads as a score. Raise instead, with the compiler's output; create_pool/2
+  # removes the tree. Progress goes to stderr so `--format json` output stays
+  # parseable.
+  defp warm_up!(sandboxes, base_dir) do
+    Enum.each(sandboxes, fn sandbox ->
+      started = System.monotonic_time(:millisecond)
+
+      {output, status} =
+        System.cmd("mix", ["compile"],
+          cd: sandbox.root,
+          env: [{"MIX_ENV", sandbox.build_env}],
+          stderr_to_stdout: true
+        )
+
+      elapsed = System.monotonic_time(:millisecond) - started
+
+      IO.puts(
+        :stderr,
+        "muex: warmed #{Path.relative_to(sandbox.root, base_dir)} in #{elapsed} ms"
+      )
+
+      if status != 0 do
+        raise Error, """
+        muex: sandbox #{sandbox.root} failed to compile (exit #{status}); no mutant can run.
+        #{output}
+        """
+      end
+    end)
   end
 
   @doc """
@@ -112,6 +324,15 @@ defmodule Muex.Sandbox do
     # so this sandbox can recompile independently.
     ensure_build_copy_for_file(sandbox, original_path)
 
+    # Never write through a link into the real project (see check_targets!/2).
+    if private_path?(sandbox, original_path) do
+      write_mutant(sandbox, sandbox_path, original_path, mutated_source, module_name)
+    else
+      {:error, {:outside_sandbox, original_path}}
+    end
+  end
+
+  defp write_mutant(sandbox, sandbox_path, original_path, mutated_source, module_name) do
     # Remove the symlink and write the mutated source as a real file
     File.rm(sandbox_path)
 
@@ -140,6 +361,11 @@ defmodule Muex.Sandbox do
     sandbox_path = Path.join(sandbox.root, original_path)
     project_path = Path.join(sandbox.project_root, original_path)
 
+    # The rm below would delete the REAL file if the path ran through a link.
+    unless private_path?(sandbox, original_path) do
+      raise Error, "muex: refusing to restore #{original_path}: it is not private to the sandbox"
+    end
+
     # Copy the original source back over the mutated file.
     # (The app dir is a COW copy, not symlinks, so we overwrite in place.)
     File.rm(sandbox_path)
@@ -154,8 +380,10 @@ defmodule Muex.Sandbox do
   @spec cleanup([sandbox()]) :: :ok
   def cleanup(sandboxes) do
     case sandboxes do
-      [%{root: first_root} | _] ->
-        base_dir = Path.dirname(first_root)
+      [%{root: first_root} = first | _] ->
+        # An umbrella sandbox's root is one level deeper than the pool's base
+        # directory, so use the base create_pool/2 recorded.
+        base_dir = Map.get(first, :base, Path.dirname(first_root))
         File.rm_rf!(base_dir)
 
       [] ->
@@ -187,22 +415,6 @@ defmodule Muex.Sandbox do
         safe_symlink(source, Path.join(root, dir))
       end
     end
-  end
-
-  defp setup_umbrella_apps(root, project_root) do
-    apps_source = Path.join(project_root, "apps")
-    apps_target = Path.join(root, "apps")
-    File.mkdir_p!(apps_target)
-
-    apps_source
-    |> File.ls!()
-    |> Enum.each(fn app_name ->
-      source_app = Path.join(apps_source, app_name)
-
-      if File.dir?(source_app) do
-        safe_symlink(source_app, Path.join(apps_target, app_name))
-      end
-    end)
   end
 
   # Replace an app's directory symlink with a COW copy so that individual

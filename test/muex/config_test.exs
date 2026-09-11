@@ -244,6 +244,32 @@ defmodule Muex.ConfigTest do
       assert config.files == ["custom/lib"]
       assert config.test_paths == ["custom/test", "shared/test"]
     end
+
+    @tag :tmp_dir
+    test "resolves the umbrella root as the project root of an app", %{tmp_dir: tmp_dir} do
+      File.mkdir_p!(Path.join(tmp_dir, "apps/my_app/lib"))
+      File.write!(Path.join(tmp_dir, "mix.exs"), "# umbrella mix.exs")
+      File.write!(Path.join(tmp_dir, "apps/my_app/mix.exs"), "# app mix.exs")
+
+      assert {:ok, config} =
+               Config.from_args([
+                 "--app",
+                 "my_app",
+                 "--files",
+                 Path.join(tmp_dir, "apps/my_app/lib")
+               ])
+
+      assert config.project_root == tmp_dir
+    end
+
+    @tag :tmp_dir
+    test "keeps a plain project as its own root", %{tmp_dir: tmp_dir} do
+      File.mkdir_p!(Path.join(tmp_dir, "lib"))
+      File.write!(Path.join(tmp_dir, "mix.exs"), "# project mix.exs")
+
+      assert {:ok, config} = Config.from_args(["--files", Path.join(tmp_dir, "lib")])
+      assert config.project_root == tmp_dir
+    end
   end
 
   describe "test-paths parsing" do

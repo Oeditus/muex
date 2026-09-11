@@ -276,6 +276,14 @@ defmodule Muex do
         coverage_index: coverage_index
       )
 
+    report(results, config)
+  end
+
+  # The worker pool answers {:error, reason} when it refused the run before any
+  # mutant ran (see Muex.Sandbox.Error). Nothing is scored.
+  defp report({:error, _reason} = err, _config), do: err
+
+  defp report(results, config) do
     case output_report(results, config.format, config.verbose) do
       {:error, _} = err -> err
       _ -> build_result(results)

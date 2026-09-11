@@ -15,6 +15,31 @@ defmodule Muex.DependencyAnalyzerTest do
       # Should return a map
       assert is_map(result)
     end
+
+    @tag :tmp_dir
+    test "keys nested module references by their full module name", %{tmp_dir: tmp_dir} do
+      test_file = Path.join(tmp_dir, "sample_test.exs")
+
+      File.write!(test_file, """
+      defmodule SampleTest do
+        use ExUnit.Case
+        alias MyApp.Aliased
+        import MyApp.Imported
+
+        test "calls" do
+          MyApp.Remote.call()
+        end
+      end
+      """)
+
+      result = DependencyAnalyzer.analyze(tmp_dir)
+
+      for module <- [MyApp.Aliased, MyApp.Imported, MyApp.Remote] do
+        assert Map.get(result, module) == [test_file]
+      end
+
+      refute Map.has_key?(result, :ElixirMyAppAliased)
+    end
   end
 
   describe "get_dependent_tests/2" do
