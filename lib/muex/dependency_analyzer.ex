@@ -163,11 +163,14 @@ defmodule Muex.DependencyAnalyzer do
     end
   end
 
-  # Convert alias parts to module atom
+  # Convert alias parts to module atom: [:MyApp, :Foo] -> MyApp.Foo. The
+  # parts must be joined with "."; without it the result (:ElixirMyAppFoo)
+  # names no module, no test file is ever selected, and every mutant falls back
+  # to running the whole test directory.
   defp module_from_parts(parts) do
     parts
     |> Enum.flat_map(&safe_to_string/1)
-    |> then(&Enum.join(["Elixir" | &1]))
+    |> then(&Enum.join(["Elixir" | &1], "."))
     |> String.to_atom()
   end
 

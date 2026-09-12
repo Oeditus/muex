@@ -33,11 +33,11 @@ defmodule Muex.Runner do
 
   ## Returns
 
-    List of `mutation_result` maps
+    List of `mutation_result` maps, or `{:error, reason}` when the run was
+    refused before any mutant ran (see `Muex.Sandbox.Error`).
   """
-  @spec run_all([map()], %{Path.t() => map()}, module(), map(), map(), keyword()) :: [
-          mutation_result()
-        ]
+  @spec run_all([map()], %{Path.t() => map()}, module(), map(), map(), keyword()) ::
+          [mutation_result()] | {:error, String.t()}
   def run_all(
         mutations,
         file_entries,

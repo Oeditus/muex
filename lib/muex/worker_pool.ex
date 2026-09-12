@@ -153,7 +153,7 @@ defmodule Muex.WorkerPool do
           map(),
           map(),
           keyword()
-        ) :: [map()]
+        ) :: [map()] | {:error, String.t()}
   def run_mutations(
         pool,
         mutations,
@@ -200,17 +200,6 @@ defmodule Muex.WorkerPool do
       test_paths = Keyword.get(opts, :test_paths, ["test"])
       project_root = Keyword.get(opts, :project_root, File.cwd!())
 
-      sandboxes =
-        Sandbox.create_pool(state.max_workers,
-          project_root: project_root,
-          test_paths: test_paths
-        )
-
-      available_sandboxes =
-        sandboxes
-        |> Enum.with_index()
-        |> Enum.reduce(:queue.new(), fn {_sb, idx}, q -> :queue.in(idx, q) end)
-
       # Group mutations by file path into per-file queues
       pending_by_file =
         Enum.reduce(mutations, %{}, fn mutation, acc ->
@@ -219,7 +208,7 @@ defmodule Muex.WorkerPool do
           Map.put(acc, file_path, :queue.in(mutation, queue))
         end)
 
-      new_state = %{
+      prepared = %{
         state
         | pending_by_file: pending_by_file,
           file_entries: file_entries,
@@ -235,14 +224,124 @@ defmodule Muex.WorkerPool do
           completed_mutations: 0,
           locked_files: MapSet.new(),
           active_workers: %{},
-          monitor_to_worker: %{},
-          sandboxes: sandboxes,
-          available_sandboxes: available_sandboxes
+          monitor_to_worker: %{}
       }
+
+      # Refuse, before any sandbox exists, a target the sandbox would share
+      # with the real project and a mutant with no test to judge it.
+      Sandbox.check_targets!(project_root, Map.keys(pending_by_file))
+      selections = select_all!(prepared, mutations)
+
+      # Mutants of one file run one at a time (the per-file lock below), so
+      # no more than one sandbox per file can ever be busy. Build no more than
+      # that: an umbrella sandbox costs a whole-umbrella compile to warm.
+      sandboxes =
+        Sandbox.create_pool(min(state.max_workers, map_size(pending_by_file)),
+          project_root: project_root,
+          test_paths: test_paths
+        )
+
+      available_sandboxes =
+        sandboxes
+        |> Enum.with_index()
+        |> Enum.reduce(:queue.new(), fn {_sb, idx}, q -> :queue.in(idx, q) end)
+
+      new_state = %{prepared | sandboxes: sandboxes, available_sandboxes: available_sandboxes}
+
+      # The sandboxes are removed on any failure here.
+      try do
+        baseline!(new_state, selections)
+      rescue
+        e ->
+          Sandbox.cleanup(sandboxes)
+          reraise e, __STACKTRACE__
+      end
 
       {:noreply, schedule_workers(new_state)}
     end
+  rescue
+    # A run that cannot give a trustworthy verdict ends with its reason
+    # instead of a crash report. Any sandboxes were already removed.
+    e in Sandbox.Error -> {:reply, {:error, Exception.message(e)}, state}
   end
+
+  # `mix test` given no files runs EVERY test, so an empty selection would be
+  # judged by the whole suite and anything failing in it would "kill" the
+  # mutant. Stop the run instead.
+  defp select_all!(state, mutations) do
+    selections = Enum.map(mutations, &select_tests(&1, state))
+
+    empty =
+      mutations
+      |> Enum.zip(selections)
+      |> Enum.filter(&match?({_mutation, {:run, []}}, &1))
+      |> Enum.map(fn {mutation, _} -> mutation.location.file end)
+      |> Enum.uniq()
+
+    if empty != [] do
+      raise Sandbox.Error, """
+      muex: no test file was selected for these files, and `mix test` with no
+      files would run every test. Check --test-paths (or --app):
+      #{Enum.join(empty, "\n")}
+      """
+    end
+
+    selections
+  end
+
+  # A mutant is "killed" when any test chosen for it fails. If a chosen test
+  # already fails with no mutation applied (a database that is not up, a file
+  # the sandbox cannot see), every mutant it judges is reported killed and the
+  # score certifies nothing. Run every test file any mutant will use, once, in
+  # an unmutated sandbox, and refuse to report verdicts if one fails.
+  #
+  # Umbrella only, like the warm-up: that is the sandbox that is a private
+  # copy. A plain project's sandbox still shares the real build.
+  defp baseline!(%State{sandboxes: [sandbox | _]} = state, selections) do
+    if Sandbox.umbrella?(state.project_root) do
+      test_files =
+        selections
+        |> Enum.flat_map(fn
+          {:run, files} -> files
+          :no_coverage -> []
+        end)
+        |> Enum.uniq()
+
+      run_baseline!(test_files, sandbox, state)
+    end
+
+    :ok
+  end
+
+  defp run_baseline!([], _sandbox, _state), do: :ok
+
+  defp run_baseline!(test_files, sandbox, state) do
+    timeout_ms = Keyword.get(state.opts, :timeout_ms, 5_000)
+    started = System.monotonic_time(:millisecond)
+    result = PortRunner.run_tests(test_files, timeout_ms: timeout_ms, cd: sandbox.root)
+    elapsed = System.monotonic_time(:millisecond) - started
+
+    case result do
+      {:ok, %{failures: 0}} ->
+        # stderr, so `--format json` output stays parseable.
+        IO.puts(
+          :stderr,
+          "muex: baseline green, #{length(test_files)} test file(s) with no mutation, #{elapsed} ms"
+        )
+
+      other ->
+        raise Sandbox.Error, """
+        muex: the tests chosen to judge these mutants do not pass with NO mutation
+        applied, so every verdict would be noise. Nothing was scored.
+        Test files: #{Enum.join(test_files, " ")}
+        #{baseline_detail(other)}
+        """
+    end
+  end
+
+  defp baseline_detail({:ok, %{output: output}}), do: output
+  defp baseline_detail({:error, {_kind, output}}) when is_binary(output), do: output
+  defp baseline_detail(other), do: inspect(other)
 
   @impl true
   def handle_info({:worker_done, worker_ref, result}, state) do
@@ -347,6 +446,13 @@ defmodule Muex.WorkerPool do
         {:noreply, state}
     end
   end
+
+  # This process traps exits, and building an umbrella sandbox runs `cp` and
+  # `mix compile` through System.cmd from inside handle_call/3. The port
+  # System.cmd opens is linked to this process, so its normal close arrives
+  # here as {:EXIT, port, :normal}. A normal exit is not news; anything else
+  # still falls through and crashes.
+  def handle_info({:EXIT, _from, :normal}, state), do: {:noreply, state}
 
   # -- Scheduling --
 
@@ -497,6 +603,7 @@ defmodule Muex.WorkerPool do
     {result_type, error} =
       case result do
         {:invalid, err} -> {:invalid, err}
+        {:killed, killed_by} -> {:killed, killed_by}
         other -> {other, nil}
       end
 
@@ -545,6 +652,11 @@ defmodule Muex.WorkerPool do
   defp fallback_to_all([], test_paths), do: Config.expand_test_paths(test_paths)
   defp fallback_to_all(test_files, _test_paths), do: test_files
 
+  # select_all!/2 already refused an empty selection; this is the per-mutant
+  # guard, so no path reaches `mix test` with no files.
+  defp run_in_sandbox(_sandbox, _file_path, _source, _file_entry, [], _timeout_ms),
+    do: {:invalid, :no_test_files_selected}
+
   defp run_in_sandbox(sandbox, file_path, mutated_source, file_entry, test_files, timeout_ms) do
     case Sandbox.apply_mutation(sandbox, file_path, mutated_source, file_entry.module_name) do
       {:ok, _precompiled} ->
@@ -564,9 +676,33 @@ defmodule Muex.WorkerPool do
   end
 
   defp classify_test_result({:ok, %{failures: 0}}), do: :survived
-  defp classify_test_result({:ok, %{failures: _}}), do: :killed
+
+  # Without the output a kill carries no evidence, and a test failing for its
+  # own reasons looks exactly like a test catching the mutant. Keep ExUnit's
+  # first failure block (test name, file:line, assertion) as the result's
+  # `error`, which the JSON and HTML reports already print.
+  defp classify_test_result({:ok, %{failures: _, output: output}}),
+    do: {:killed, killed_by(output)}
+
   defp classify_test_result({:error, :timeout}), do: :timeout
   defp classify_test_result({:error, reason}), do: {:invalid, reason}
+
+  @failure_block_lines 12
+
+  defp killed_by(output) do
+    lines = String.split(output, "\n")
+
+    # ExUnit numbers its failure blocks: "  1) test ...", "  1) doctest ...",
+    # or "  0) SomeTest: failure on setup_all callback ...". Take the first.
+    case Enum.drop_while(lines, &(not Regex.match?(~r/^\s+\d+\) /, &1))) do
+      [] ->
+        "killed by: no failing test named in the output (non-zero exit only). " <>
+          (Enum.find(lines, "", &String.starts_with?(&1, "Result: ")) |> String.trim())
+
+      block ->
+        "killed by:\n" <> (block |> Enum.take(@failure_block_lines) |> Enum.join("\n"))
+    end
+  end
 
   # Convert absolute test file paths to relative so `mix test` (running in
   # the sandbox, which mirrors the project root) can resolve them.

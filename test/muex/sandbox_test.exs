@@ -1,6 +1,8 @@
 defmodule Muex.SandboxTest do
   use ExUnit.Case
 
+  import ExUnit.CaptureIO, only: [with_io: 2]
+
   alias Muex.Sandbox
 
   @project_root File.cwd!()
@@ -239,5 +241,143 @@ defmodule Muex.SandboxTest do
       :ok = Sandbox.restore(sb1, target_file)
       assert File.read!(sb1_path) == original
     end
+  end
+
+  describe "check_targets!/2" do
+    @describetag :tmp_dir
+
+    test "refuses an umbrella file outside apps/, which the sandbox links", %{tmp_dir: tmp_dir} do
+      File.mkdir_p!(Path.join(tmp_dir, "apps/a/lib"))
+
+      assert :ok = Sandbox.check_targets!(tmp_dir, ["apps/a/lib/a.ex"])
+
+      error =
+        assert_raise Sandbox.Error, fn ->
+          Sandbox.check_targets!(tmp_dir, ["apps/a/lib/a.ex", "lib/root.ex"])
+        end
+
+      assert error.message =~ "lib/root.ex"
+      refute error.message =~ "apps/a/lib/a.ex"
+
+      assert_raise Sandbox.Error, fn ->
+        Sandbox.check_targets!(tmp_dir, ["apps/a/../../config/config.exs"])
+      end
+    end
+
+    test "accepts any target in a plain project", %{tmp_dir: tmp_dir} do
+      assert :ok = Sandbox.check_targets!(tmp_dir, ["lib/foo.ex"])
+    end
+  end
+
+  describe "umbrella sandboxes" do
+    @describetag :tmp_dir
+
+    # apps/b depends on apps/a in_umbrella. Linking apps one by one sends b's
+    # `path: "../a"` to the real project while the root sees the sandbox copy,
+    # so the sandbox cannot compile. A cloned apps/ keeps both paths inside.
+    setup %{tmp_dir: tmp_dir} do
+      project_root = Path.join(tmp_dir, "umbrella")
+
+      files = %{
+        "mix.exs" => """
+        defmodule Umbrella.MixProject do
+          use Mix.Project
+          def project, do: [apps_path: "apps", version: "0.1.0", deps: []]
+        end
+        """,
+        "config/config.exs" => "import Config\n",
+        "apps/a/mix.exs" => app_mix_exs(:a, "A", []),
+        "apps/a/lib/a.ex" => "defmodule A do\n  def one, do: 1\nend\n",
+        "apps/b/mix.exs" => app_mix_exs(:b, "B", [{:a, in_umbrella: true}]),
+        "apps/b/lib/b.ex" => "defmodule B do\n  def two, do: A.one() + 1\nend\n"
+      }
+
+      for {path, content} <- files do
+        full = Path.join(project_root, path)
+        File.mkdir_p!(Path.dirname(full))
+        File.write!(full, content)
+      end
+
+      File.write!(Path.join(tmp_dir, "beside.txt"), "a file next to the umbrella")
+
+      %{project_root: project_root}
+    end
+
+    test "clone apps/ and compile in_umbrella deps without touching the project",
+         %{project_root: project_root} do
+      [sandbox] = warm_pool(project_root)
+      on_exit(fn -> Sandbox.cleanup([sandbox]) end)
+
+      assert Path.basename(sandbox.root) == "umbrella"
+      assert {:error, _} = File.read_link(Path.join(sandbox.root, "apps"))
+      assert {:ok, _} = File.read_link(Path.join(sandbox.root, "config"))
+      assert File.exists?(Path.join(sandbox.root, "../beside.txt"))
+
+      # The warm-up compiled both apps inside the sandbox...
+      assert File.exists?(Path.join(sandbox.root, "_build/test/lib/b/ebin/Elixir.B.beam"))
+      # ...and wrote nothing into the real project.
+      refute File.exists?(Path.join(project_root, "_build"))
+    end
+
+    test "never writes a mutant through a link", %{project_root: project_root} do
+      [sandbox] = warm_pool(project_root)
+      on_exit(fn -> Sandbox.cleanup([sandbox]) end)
+
+      real = Path.join(project_root, "config/config.exs")
+      before = File.read!(real)
+
+      assert {:error, {:outside_sandbox, "config/config.exs"}} =
+               Sandbox.apply_mutation(sandbox, "config/config.exs", "# mutant", nil)
+
+      assert_raise Sandbox.Error, fn -> Sandbox.restore(sandbox, "config/config.exs") end
+      assert File.read!(real) == before
+    end
+
+    test "removes the pool when a sandbox does not compile", %{project_root: project_root} do
+      File.write!(Path.join(project_root, "apps/a/lib/broken.ex"), "defmodule Broken do\n")
+
+      {error, _stderr} =
+        with_io(:stderr, fn ->
+          assert_raise Sandbox.Error, ~r/failed to compile/, fn ->
+            Sandbox.create_pool(1, project_root: project_root, test_paths: [])
+          end
+        end)
+
+      [_, root] = Regex.run(~r/sandbox (\S+) failed to compile/, error.message)
+      pool_base = root |> Path.dirname() |> Path.dirname()
+      assert String.starts_with?(Path.basename(pool_base), "muex_sandboxes_")
+      refute File.exists?(pool_base)
+    end
+  end
+
+  # Warm-up progress goes to stderr, so it cannot corrupt `--format json`.
+  defp warm_pool(project_root) do
+    {sandboxes, stderr} =
+      with_io(:stderr, fn ->
+        Sandbox.create_pool(1, project_root: project_root, test_paths: [])
+      end)
+
+    assert stderr =~ "muex: warmed worker_1/umbrella"
+    sandboxes
+  end
+
+  defp app_mix_exs(app, name, deps) do
+    """
+    defmodule #{name}.MixProject do
+      use Mix.Project
+
+      def project do
+        [
+          app: #{inspect(app)},
+          version: "0.1.0",
+          build_path: "../../_build",
+          config_path: "../../config/config.exs",
+          deps_path: "../../deps",
+          lockfile: "../../mix.lock",
+          deps: #{inspect(deps)}
+        ]
+      end
+    end
+    """
   end
 end
