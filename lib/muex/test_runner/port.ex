@@ -57,16 +57,10 @@ defmodule Muex.TestRunner.Port do
             {:error, {:no_test_summary, output}}
 
           true ->
-            failures = count_failures(output, exit_code)
-
             {:ok,
-             %{
-               failures: failures,
-               tests_run: tests_run(output),
-               output: output,
-               exit_code: exit_code,
-               duration_ms: duration_ms
-             }}
+             output
+             |> summary_counts(exit_code)
+             |> Map.merge(%{output: output, exit_code: exit_code, duration_ms: duration_ms})}
         end
 
       {:error, reason} ->
@@ -214,20 +208,51 @@ defmodule Muex.TestRunner.Port do
 
   # Elixir < 1.20 carries the count in the summary line itself
   # ("5 tests, 2 failures"); Elixir >= 1.20 puts it on its own "Failed: N test(s)"
-  # line and omits the line entirely when nothing failed.
-  @pre_120_failures_pattern ~r/(\d+) failures?/
+  # line and omits the line entirely when nothing failed. An umbrella prints one
+  # summary per app, so every match counts, not only the first.
+  @pre_120_failures_pattern ~r/^(?:\d+ \w+, )*(\d+) failures?/m
   @post_120_failures_pattern ~r/^Failed: (\d+) tests?/m
+
+  @ansi_escape ~r/\e\[[0-9;]*m/
+
+  @doc false
+  # The failure count and the number of tests that ran, read from every summary
+  # in the output. ANSI colours come off first: a suite that forces ExUnit's
+  # colours on wraps the pre-1.20 summary line in escape codes, which the
+  # line-anchored patterns would otherwise miss.
+  @spec summary_counts(String.t(), integer()) :: %{
+          failures: non_neg_integer(),
+          tests_run: non_neg_integer() | nil
+        }
+  def summary_counts(output, exit_code) do
+    plain = String.replace(output, @ansi_escape, "")
+    %{failures: count_failures(plain, exit_code), tests_run: tests_run(plain)}
+  end
 
   # Only reached for output that carries a recognisable ExUnit summary; an
   # unrecognisable run is rejected as {:error, {:no_test_summary, _}} upstream.
+  #
+  # A non-zero exit with no failure counted is still a failure. A setup_all
+  # crash reports its tests as invalid, not failed: "Result: 0 tests, 1 invalid"
+  # on 1.20, "1 test, 0 failures, 1 invalid" before it, and exits non-zero either
+  # way. Reading that as a clean pass, or as "nothing ran", would hide a mutant
+  # that broke the test setup.
   defp count_failures(output, exit_code) do
-    with nil <- parse_failure_count(@pre_120_failures_pattern, output),
-         nil <- parse_failure_count(@post_120_failures_pattern, output) do
-      # A summary exists but names no failure count ("Result: 3 passed", or
-      # "Result: 0 tests, 1 invalid" after a setup_all crash). The process exit
-      # status is then the only trustworthy signal — the setup_all case reports
-      # no failures yet exits non-zero, so it must not be read as a clean pass.
-      if exit_code == 0, do: 0, else: 1
+    counted =
+      sum_matches(@pre_120_failures_pattern, output) ||
+        sum_matches(@post_120_failures_pattern, output)
+
+    cond do
+      is_integer(counted) and counted > 0 -> counted
+      exit_code != 0 -> 1
+      true -> 0
+    end
+  end
+
+  defp sum_matches(pattern, output) do
+    case Regex.scan(pattern, output, capture: :all_but_first) do
+      [] -> nil
+      matches -> matches |> List.flatten() |> Enum.map(&String.to_integer/1) |> Enum.sum()
     end
   end
 
@@ -274,12 +299,5 @@ defmodule Muex.TestRunner.Port do
     |> List.flatten()
     |> Enum.map(&String.to_integer/1)
     |> Enum.sum()
-  end
-
-  defp parse_failure_count(pattern, output) do
-    case Regex.run(pattern, output) do
-      [_, count] -> String.to_integer(count)
-      nil -> nil
-    end
   end
 end

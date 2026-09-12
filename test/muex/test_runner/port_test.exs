@@ -331,6 +331,72 @@ defmodule Muex.TestRunner.PortTest do
     end
   end
 
+  describe "summary_counts/2" do
+    test "sums failures over every summary, as an umbrella prints one per app" do
+      output = "==> a\n2 tests, 0 failures\n==> b\n1 test, 1 failure"
+      assert %{failures: 1, tests_run: 3} = PortRunner.summary_counts(output, 1)
+
+      output = "==> a\nResult: 2 passed\n==> b\nResult: 0/1 passed\nFailed: 1 test"
+      assert %{failures: 1, tests_run: 3} = PortRunner.summary_counts(output, 1)
+    end
+
+    # A setup_all crash counts its tests invalid, not failed, and exits non-zero.
+    # It must read as a failure, not as a pass and not as "nothing ran".
+    test "a non-zero exit with no failure counted is a failure" do
+      assert %{failures: 1, tests_run: 0} =
+               PortRunner.summary_counts("1 test, 0 failures, 1 invalid", 1)
+
+      assert %{failures: 1, tests_run: 0} =
+               PortRunner.summary_counts("Result: 0 tests, 1 invalid", 1)
+    end
+
+    test "a zero exit with no failure counted is a pass" do
+      assert %{failures: 0, tests_run: 0} =
+               PortRunner.summary_counts("3 tests, 0 failures, 3 excluded", 0)
+
+      assert %{failures: 0, tests_run: 3} = PortRunner.summary_counts("Result: 3 passed", 0)
+    end
+
+    test "reads a summary that forced ExUnit colours wrapped in escape codes" do
+      output = "\e[31m2 tests, 1 failure, 1 excluded\e[0m\n"
+      assert %{failures: 1, tests_run: 1} = PortRunner.summary_counts(output, 1)
+
+      output = "\e[32m3 tests, 0 failures, 3 excluded\e[0m\n"
+      assert %{failures: 0, tests_run: 0} = PortRunner.summary_counts(output, 0)
+    end
+
+    test "a real setup_all crash is counted as a failure" do
+      tmp_dir =
+        Path.join(System.tmp_dir!(), "muex_port_test_#{System.unique_integer([:positive])}")
+
+      File.mkdir_p!(tmp_dir)
+      crash_test = Path.join(tmp_dir, "setup_all_crash_test.exs")
+
+      File.write!(crash_test, """
+      defmodule MuexSetupAllCrashTest#{System.unique_integer([:positive])} do
+        use ExUnit.Case
+        setup_all do
+          raise "setup_all blew up"
+        end
+
+        test "never runs" do
+          assert 1 + 1 == 2
+        end
+      end
+      """)
+
+      try do
+        assert {:ok, %{failures: failures, exit_code: exit_code}} =
+                 PortRunner.run_tests([crash_test], timeout_ms: 30_000)
+
+        assert exit_code != 0
+        assert failures >= 1
+      after
+        File.rm_rf!(tmp_dir)
+      end
+    end
+  end
+
   describe "compile error regex" do
     @compile_error_pattern ~r/\*\* \([\w.]*(?:Error|Missing[\w.]*)\)/
 
