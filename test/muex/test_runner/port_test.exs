@@ -252,6 +252,85 @@ defmodule Muex.TestRunner.PortTest do
     end
   end
 
+  # A mutant whose chosen tests were all excluded, skipped or invalid was never
+  # tested. `mix test` still exits 0, so the count of tests that ran is the only
+  # thing that tells it apart from a real survivor.
+  describe "tests_run/1" do
+    test "reads the 1.20 summary: only passed and failed tests ran" do
+      assert PortRunner.tests_run("Finished in 0.00 seconds\n\nResult: 1 passed") == 1
+      assert PortRunner.tests_run("Result: 0/1 passed, 1 skipped\nFailed: 1 test") == 1
+      assert PortRunner.tests_run("Result: 0/2 passed\nFailed: 2 tests") == 2
+
+      assert PortRunner.tests_run("Result: 1/2 passed, 1 skipped, 1 excluded\nFailed: 1 test") ==
+               2
+
+      assert PortRunner.tests_run("Result: 455 passed (70 tests, 14 properties)") == 455
+    end
+
+    test "reads a 1.20 run where nothing ran as zero" do
+      assert PortRunner.tests_run("Result: 0 tests, 1 excluded") == 0
+      assert PortRunner.tests_run("Result: 0 tests, 1 invalid") == 0
+      assert PortRunner.tests_run("Result: 0 tests, 2 skipped") == 0
+    end
+
+    test "reads the pre-1.20 summary, which counts excluded and skipped tests too" do
+      assert PortRunner.tests_run("Finished in 0.05 seconds\n5 tests, 0 failures") == 5
+      assert PortRunner.tests_run("5 tests, 2 failures") == 5
+      assert PortRunner.tests_run("1 doctest, 2 tests, 0 failures, 1 skipped") == 2
+      assert PortRunner.tests_run("3 tests, 0 failures, 3 excluded") == 0
+
+      assert PortRunner.tests_run(
+               "All tests have been excluded.\n\n3 tests, 0 failures, 3 excluded"
+             ) == 0
+
+      assert PortRunner.tests_run("2 tests, 0 failures, 1 excluded, 1 skipped") == 0
+      assert PortRunner.tests_run("0 failures") == 0
+    end
+
+    test "adds up one summary per app, as an umbrella prints" do
+      assert PortRunner.tests_run("==> a\nResult: 0 tests, 2 excluded\n==> b\nResult: 3 passed") ==
+               3
+
+      assert PortRunner.tests_run(
+               "==> a\nResult: 0 tests, 2 excluded\n==> b\nResult: 0 tests, 1 skipped"
+             ) == 0
+
+      assert PortRunner.tests_run(
+               "==> a\n2 tests, 0 failures, 2 excluded\n==> b\n1 test, 0 failures"
+             ) == 1
+    end
+
+    test "is nil when there is no count to read" do
+      assert PortRunner.tests_run("** (Mix) Cannot run tests") == nil
+      assert PortRunner.tests_run("see the Result: line above") == nil
+    end
+
+    test "a real run whose only test is skipped exits 0 and ran nothing" do
+      tmp_dir =
+        Path.join(System.tmp_dir!(), "muex_port_test_#{System.unique_integer([:positive])}")
+
+      File.mkdir_p!(tmp_dir)
+      skipped_test = Path.join(tmp_dir, "skipped_test.exs")
+
+      File.write!(skipped_test, """
+      defmodule MuexSkippedTest#{System.unique_integer([:positive])} do
+        use ExUnit.Case
+        @tag :skip
+        test "never runs" do
+          assert 1 + 1 == 2
+        end
+      end
+      """)
+
+      try do
+        assert {:ok, %{failures: 0, tests_run: 0, exit_code: 0}} =
+                 PortRunner.run_tests([skipped_test], timeout_ms: 30_000)
+      after
+        File.rm_rf!(tmp_dir)
+      end
+    end
+  end
+
   describe "compile error regex" do
     @compile_error_pattern ~r/\*\* \([\w.]*(?:Error|Missing[\w.]*)\)/
 

@@ -12,6 +12,7 @@ defmodule Muex.TestRunner.Port do
   """
   @type test_result :: %{
           failures: non_neg_integer(),
+          tests_run: non_neg_integer() | nil,
           output: String.t(),
           exit_code: non_neg_integer(),
           duration_ms: non_neg_integer()
@@ -59,7 +60,13 @@ defmodule Muex.TestRunner.Port do
             failures = count_failures(output, exit_code)
 
             {:ok,
-             %{failures: failures, output: output, exit_code: exit_code, duration_ms: duration_ms}}
+             %{
+               failures: failures,
+               tests_run: tests_run(output),
+               output: output,
+               exit_code: exit_code,
+               duration_ms: duration_ms
+             }}
         end
 
       {:error, reason} ->
@@ -222,6 +229,51 @@ defmodule Muex.TestRunner.Port do
       # no failures yet exits non-zero, so it must not be read as a clean pass.
       if exit_code == 0, do: 0, else: 1
     end
+  end
+
+  # Elixir >= 1.20 counts only the tests that passed or failed: "Result: 0 tests",
+  # "Result: 3 passed", "Result: 1/2 passed (...)", with any excluded, skipped or
+  # invalid tests listed after that. Elixir < 1.20 counts every test, excluded,
+  # skipped and invalid ones included, and lists those after the failures:
+  # "3 tests, 0 failures, 3 excluded", or "1 doctest, 2 tests, 0 failures, 1 skipped".
+  @post_120_run_pattern ~r/^Result: (?:(0) tests|(\d+) passed|\d+\/(\d+) passed)/m
+  @pre_120_run_pattern ~r/^((?:\d+ \w+, )*)\d+ failures?((?:, \d+ \w+)*)/m
+
+  @doc false
+  # How many tests actually ran, summed over every summary in the output (an
+  # umbrella prints one per app). A mutant whose chosen tests were all excluded,
+  # skipped or invalid was never tested, so it must not be reported as having
+  # survived them. nil when the output carries no count this can read.
+  @spec tests_run(String.t()) :: non_neg_integer() | nil
+  def tests_run(output) do
+    case Regex.scan(@post_120_run_pattern, output, capture: :all_but_first) do
+      [] -> pre_120_tests_run(output)
+      summaries -> summaries |> Enum.map(&first_count/1) |> Enum.sum()
+    end
+  end
+
+  defp pre_120_tests_run(output) do
+    case Regex.scan(@pre_120_run_pattern, output, capture: :all_but_first) do
+      [] ->
+        nil
+
+      summaries ->
+        summaries
+        |> Enum.map(fn [counted | not_run] ->
+          max(sum_counts(counted) - sum_counts(Enum.join(not_run)), 0)
+        end)
+        |> Enum.sum()
+    end
+  end
+
+  defp first_count(groups), do: groups |> Enum.find(&(&1 != "")) |> String.to_integer()
+
+  defp sum_counts(text) do
+    ~r/\d+/
+    |> Regex.scan(text)
+    |> List.flatten()
+    |> Enum.map(&String.to_integer/1)
+    |> Enum.sum()
   end
 
   defp parse_failure_count(pattern, output) do
