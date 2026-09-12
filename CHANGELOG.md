@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Test Files**: Each result records the test files `mix test` was given for the mutant (`test_files` in the JSON report, "Test files" in the HTML report and under each survivor in the terminal). For a survivor these are the tests that ran and still passed.
 
 ### Fixed
+- **`--since` in a Subdirectory**: For a project that is not at the top of its git repository, such as an umbrella inside a monorepo, `--since` matched no files and generated no mutations. The diff now names files from the project root, and relative and absolute `--files` paths both match.
 - **Unknown Format**: `--format` is validated with the other options, so an unknown format is refused before the run instead of after it.
 - **HTML Write Errors**: A failed write of `muex-report.html` is reported as an error instead of being logged as generated.
 - **Docs**: README and USAGE said `--format json` writes `muex-report.json`; it prints to stdout. The CI examples now pass `--output muex-report.json`, so the artifact they upload exists.
