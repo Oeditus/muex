@@ -163,10 +163,11 @@ defmodule Muex do
   end
 
   # Restrict the file set to those touched by the --since diff (nil = no scoping).
+  # The diff names files by absolute path; a loaded file's path may be relative.
   defp scope_to_changed_files(files, nil), do: files
 
   defp scope_to_changed_files(files, changed),
-    do: Enum.filter(files, &Map.has_key?(changed, &1.path))
+    do: Enum.filter(files, &Map.has_key?(changed, Path.expand(&1.path)))
 
   defp maybe_filter(files, %Muex.Config{filter: false} = config) do
     log("Skipping file filtering", config.verbose)

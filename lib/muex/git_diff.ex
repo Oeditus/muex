@@ -26,18 +26,22 @@ defmodule Muex.GitDiff do
   end
 
   @doc """
-  Returns the lines changed on the current branch relative to `ref`.
+  Returns the lines changed on the current branch relative to `ref`, keyed by
+  absolute path.
 
-  Uses `git diff --unified=0 <ref>...HEAD`, i.e. changes since the branch
-  diverged from `ref` (PR semantics). Returns `{:ok, map}` or `{:error, reason}`.
+  Uses `git diff --unified=0 --relative <ref>...HEAD` in `:cd` (default: the
+  current directory), i.e. changes since the branch diverged from `ref` (PR
+  semantics). `--relative` names files from `:cd` rather than from the top of
+  the repository, so a project that lives in a subdirectory of its repository
+  still finds its own files. Returns `{:ok, map}` or `{:error, reason}`.
   """
   @spec changed_since(String.t(), keyword()) :: {:ok, map()} | {:error, String.t()}
   def changed_since(ref, opts \\ []) when is_binary(ref) do
     cd = Keyword.get(opts, :cd, File.cwd!())
-    args = ["diff", "--unified=0", "--no-color", "#{ref}...HEAD"]
+    args = ["diff", "--unified=0", "--no-color", "--relative", "#{ref}...HEAD"]
 
     case System.cmd("git", args, cd: cd, stderr_to_stdout: true) do
-      {output, 0} -> {:ok, changed_lines(output)}
+      {output, 0} -> {:ok, output |> changed_lines() |> expand_paths(cd)}
       {output, _code} -> {:error, String.trim(output)}
     end
   rescue
@@ -47,20 +51,25 @@ defmodule Muex.GitDiff do
   @doc """
   Keeps only the mutations whose location falls on a changed line.
 
-  `changed` is a map as returned by `changed_lines/1`/`changed_since/2`, or
-  `nil` to disable filtering (returns every mutation unchanged).
+  `changed` is a map as returned by `changed_since/2`, or `nil` to disable
+  filtering (returns every mutation unchanged). A mutation's file is expanded
+  before the lookup, so a location loaded as `lib/foo.ex` matches the absolute
+  path the diff names.
   """
   @spec filter_mutations([map()], map() | nil) :: [map()]
   def filter_mutations(mutations, nil), do: mutations
 
   def filter_mutations(mutations, changed) when is_map(changed) do
     Enum.filter(mutations, fn mutation ->
-      case Map.get(changed, mutation.location.file) do
+      case Map.get(changed, Path.expand(mutation.location.file)) do
         nil -> false
         lines -> MapSet.member?(lines, mutation.location.line)
       end
     end)
   end
+
+  defp expand_paths(changed, cd),
+    do: Map.new(changed, fn {path, lines} -> {Path.expand(path, cd), lines} end)
 
   # New-file path line: `+++ b/path` (or `+++ /dev/null` for deletions).
   defp parse_line("+++ /dev/null", {_path, acc}), do: {:skip, acc}
