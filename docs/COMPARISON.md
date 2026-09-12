@@ -241,7 +241,7 @@ Muex offers the richest CLI and configuration:
 
 ### Muex
 - **Terminal**: Color-coded output (ANSI), progress dots, categorized summary (killed/survived/invalid/timeout), survived mutation details with file:line
-- **JSON**: Structured JSON with full mutation details, CI/CD friendly (`muex-report.json`)
+- **JSON**: Structured JSON with full mutation details, CI/CD friendly (stdout, or a file with `--output`)
 - **HTML**: Interactive report with filter buttons, summary cards, color-coded mutations, responsive design (`muex-report.html`)
 
 ### Darwin

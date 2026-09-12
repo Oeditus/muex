@@ -178,6 +178,12 @@ defmodule Muex.Reporter.Html do
         .mutation-description {
           color: #555;
         }
+        .mutation-tests {
+          color: #555;
+          font-family: 'Monaco', 'Courier New', monospace;
+          font-size: 0.85em;
+          margin-top: 5px;
+        }
         .mutation-error {
           background: #fff5f5;
           border: 1px solid #feb2b2;
@@ -267,6 +273,7 @@ defmodule Muex.Reporter.Html do
     mutation = result.mutation
     status = Atom.to_string(result.result)
     error = format_error_html(Map.get(result, :error))
+    test_files = format_test_files_html(Map.get(result, :test_files, []))
 
     """
           <div class="mutation #{status}">
@@ -277,9 +284,18 @@ defmodule Muex.Reporter.Html do
             <div class="mutation-body">
               <div class="mutation-mutator">#{format_mutator(mutation.mutator)}</div>
               <div class="mutation-description">#{escape_html(mutation.description)}</div>
+              #{test_files}
               #{error}
             </div>
           </div>
+    """
+  end
+
+  defp format_test_files_html([]), do: ""
+
+  defp format_test_files_html(test_files) do
+    """
+              <div class="mutation-tests">Test files: #{escape_html(Enum.join(test_files, ", "))}</div>
     """
   end
 

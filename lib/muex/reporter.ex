@@ -27,27 +27,18 @@ defmodule Muex.Reporter do
   @spec print_summary([map()]) :: :ok
   def print_summary(results) do
     total = length(results)
-    killed = Enum.count(results, &(&1.result == :killed))
-    survived = Enum.count(results, &(&1.result == :survived))
-    invalid = Enum.count(results, &(&1.result == :invalid))
-    timeout = Enum.count(results, &(&1.result == :timeout))
-    equivalent = Enum.count(results, &(&1.result == :equivalent))
-    no_coverage = Enum.count(results, &(&1.result == :no_coverage))
 
-    # Invalids, equivalents, and no-coverage mutants are excluded: none of them
-    # says anything about test quality (an equivalent mutant can never be
-    # killed, and a no-coverage line has no test that could kill it).
-    # Timeouts are ambiguous -- could be killed or survived.
-    denom = killed + survived + timeout
+    %{
+      killed: killed,
+      survived: survived,
+      invalid: invalid,
+      timeout: timeout,
+      equivalent: equivalent,
+      no_coverage: no_coverage
+    } = count_by_status(results)
 
-    {score_low, score_high} =
-      if denom > 0 do
-        low = Float.round(killed / denom * 100, 2)
-        high = Float.round((killed + timeout) / denom * 100, 2)
-        {low, high}
-      else
-        {0.0, 0.0}
-      end
+    score = score_range(killed, survived, timeout)
+    {score_low, _score_high} = score
 
     IO.puts("\n")
     IO.puts("#{@bold}#{@cyan}Mutation Testing Results#{@reset}")
@@ -79,14 +70,7 @@ defmodule Muex.Reporter do
         true -> @red
       end
 
-    score_str =
-      if score_low == score_high do
-        "#{score_low}%"
-      else
-        "#{score_low}%..#{score_high}%"
-      end
-
-    IO.puts("#{@bold}Mutation Score: #{score_color}#{score_str}#{@reset}")
+    IO.puts("#{@bold}Mutation Score: #{score_color}#{format_score(score)}#{@reset}")
     IO.puts("\n")
 
     if survived > 0 do
@@ -95,6 +79,60 @@ defmodule Muex.Reporter do
 
     :ok
   end
+
+  @doc """
+  Returns a one-line, uncolored summary of the results, such as
+  `"Mutation Score: 75.0% (4 mutants: 3 killed, 1 survived, 0 invalid, 0 timed out)"`.
+
+  Equivalent and no-coverage mutants are counted only when there are any, as in
+  `print_summary/1`. Printed in place of the full summary when the report is
+  written to a file.
+  """
+  @spec summary_line([map()]) :: String.t()
+  def summary_line(results) do
+    counts = count_by_status(results)
+    score = format_score(score_range(counts.killed, counts.survived, counts.timeout))
+
+    parts =
+      [
+        "#{counts.killed} killed",
+        "#{counts.survived} survived",
+        "#{counts.invalid} invalid",
+        "#{counts.timeout} timed out"
+      ] ++
+        for {status, label} <- [equivalent: "equivalent", no_coverage: "no coverage"],
+            counts[status] > 0,
+            do: "#{counts[status]} #{label}"
+
+    "Mutation Score: #{score} (#{length(results)} mutants: #{Enum.join(parts, ", ")})"
+  end
+
+  @statuses [:killed, :survived, :invalid, :timeout, :equivalent, :no_coverage]
+
+  defp count_by_status(results) do
+    frequencies = Enum.frequencies_by(results, & &1.result)
+    Map.new(@statuses, &{&1, Map.get(frequencies, &1, 0)})
+  end
+
+  # Invalids, equivalents, and no-coverage mutants are excluded: none of them
+  # says anything about test quality (an equivalent mutant can never be
+  # killed, and a no-coverage line has no test that could kill it).
+  # Timeouts are ambiguous -- could be killed or survived -- so the score is a
+  # range: the low bound counts them as survived, the high bound as killed.
+  defp score_range(killed, survived, timeout) do
+    denom = killed + survived + timeout
+
+    if denom > 0 do
+      low = Float.round(killed / denom * 100, 2)
+      high = Float.round((killed + timeout) / denom * 100, 2)
+      {low, high}
+    else
+      {0.0, 0.0}
+    end
+  end
+
+  defp format_score({score, score}), do: "#{score}%"
+  defp format_score({low, high}), do: "#{low}%..#{high}%"
 
   @doc """
   Prints progress for a single mutation result.
@@ -140,9 +178,17 @@ defmodule Muex.Reporter do
       IO.puts("#{@cyan}#{location.file}:#{location.line}#{@reset}")
       IO.puts("  #{@yellow}#{mutation.description}#{@reset}")
       print_patch(Patch.of(mutation))
+      print_test_files(Map.get(result, :test_files, []))
       IO.puts("")
     end)
   end
+
+  # A survivor's test files all ran and passed anyway; naming them points at the
+  # assertion that is missing or too weak.
+  defp print_test_files([]), do: :ok
+
+  defp print_test_files(test_files),
+    do: IO.puts("    #{@gray}Test files: #{Enum.join(test_files, ", ")}#{@reset}")
 
   defp print_patch(%{before: before_snippet, after: after_snippet}) do
     IO.puts("    #{@red}- #{before_snippet}#{@reset}")

@@ -94,7 +94,8 @@ defmodule Muex.Reporter.Json do
       },
       patch: Patch.of(mutation),
       duration_ms: Map.get(result, :duration_ms, 0),
-      error: format_error(Map.get(result, :error))
+      error: format_error(Map.get(result, :error)),
+      test_files: Map.get(result, :test_files, [])
     }
   end
 

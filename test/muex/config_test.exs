@@ -124,6 +124,41 @@ defmodule Muex.ConfigTest do
       assert config.format == "json"
     end
 
+    test "output defaults to nil" do
+      assert {:ok, config} = Config.from_args([])
+      assert config.output == nil
+    end
+
+    test "parses --output with --format json" do
+      assert {:ok, config} = Config.from_args(["--format", "json", "--output", "tmp/report.json"])
+      assert config.output == "tmp/report.json"
+    end
+
+    test "parses --output with --format html" do
+      assert {:ok, config} = Config.from_args(["--format", "html", "--output", "report.html"])
+      assert config.output == "report.html"
+    end
+
+    test "rejects an unknown --format before the run" do
+      assert {:error, message} = Config.from_args(["--format", "xml"])
+      assert message == "Unknown format: xml. Use terminal, json, or html"
+    end
+
+    test "reports an unknown --format as such even with --output" do
+      assert {:error, message} = Config.from_args(["--format", "xml", "--output", "a.xml"])
+      assert message =~ "Unknown format: xml"
+    end
+
+    test "rejects --output with the terminal format" do
+      assert {:error, message} = Config.from_args(["--output", "report.txt"])
+      assert message =~ "--output needs --format json or --format html"
+    end
+
+    test "rejects an empty --output" do
+      assert {:error, message} = Config.from_args(["--format", "json", "--output", ""])
+      assert message =~ "--output needs a file path"
+    end
+
     test "keep_metadata defaults to false" do
       assert {:ok, config} = Config.from_args([])
       refute config.keep_metadata

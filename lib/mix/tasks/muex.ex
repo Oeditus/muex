@@ -18,6 +18,7 @@ defmodule Mix.Tasks.Muex do
     * `--timeout` - Test timeout in milliseconds (default: 10000)
     * `--fail-at` - Minimum mutation score to pass (default: 80)
     * `--format` - Output format: terminal, json, html (default: terminal)
+    * `--output` - Write the json or html report to this file and print a one-line summary
     * `--min-score` - Minimum complexity score for files to include (default: 20)
     * `--max-mutations` - Maximum number of mutations to test (0 = unlimited, default: 0)
     * `--no-filter` - Disable intelligent file filtering
@@ -43,6 +44,7 @@ defmodule Mix.Tasks.Muex do
       mix muex --fail-at 80               # Fail below 80%
       mix muex --format json              # JSON output
       mix muex --format html              # HTML report
+      mix muex --format json --output muex-report.json
       mix muex --verbose                  # Detailed progress
       mix muex --optimize --optimize-level aggressive
       mix muex --app my_app               # Umbrella: specific app

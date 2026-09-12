@@ -10,7 +10,8 @@ defmodule Muex.Runner do
           mutation: map(),
           result: result(),
           duration_ms: non_neg_integer(),
-          error: term() | nil
+          error: term() | nil,
+          test_files: [String.t()]
         }
   @doc """
   Runs all mutations in parallel using a global worker pool with sandbox isolation.

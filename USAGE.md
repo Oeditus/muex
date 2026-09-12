@@ -753,6 +753,7 @@ mix muex
 - Color-coded mutation score (green ≥80%, yellow ≥60%, red <60%)
 - Summary statistics
 - A before/after diff under each survived mutation (`- original` / `+ mutated`)
+- The test files each survived mutation ran against (`Test files: ...`)
 
 **Example:**
 ```
@@ -785,10 +786,12 @@ Survived Mutations:
 Machine-readable format for CI/CD integration:
 
 ```bash
-mix muex --format json
+mix muex --format json                            # prints the report to stdout
+mix muex --format json --output muex-report.json  # writes it to a file
 ```
 
-Generates `muex-report.json`:
+With `--output`, the terminal gets a one-line summary instead of the report.
+The report looks like this:
 
 ```json
 {
@@ -809,7 +812,8 @@ Generates `muex-report.json`:
       "location": { "file": "lib/calculator.ex", "line": 15 },
       "patch": { "before": "a + b", "after": "a - b" },
       "duration_ms": 234,
-      "error": null
+      "error": null,
+      "test_files": ["test/calculator_test.exs"]
     }
   ]
 }
@@ -819,15 +823,23 @@ Each mutation includes a `patch` object with `before` and `after` code
 snippets so survived mutants can be reproduced directly from the report. The
 field is `null` when a mutation carries no AST (for example synthetic results).
 
+`test_files` lists the test files `mix test` was given for the mutant. For a
+survivor, every one of them ran and passed, so they are where an assertion is
+missing or too weak. A killed mutant stops at its first failing test, so later
+files may not have run. The list is empty when the mutant was not judged by
+tests: it did not compile, was skipped as equivalent or uncovered, or its
+worker crashed.
+
 ### HTML Output
 
 Interactive HTML report for sharing:
 
 ```bash
-mix muex --format html
+mix muex --format html                             # writes muex-report.html
+mix muex --format html --output reports/muex.html  # writes it where you say
 ```
 
-Generates `muex-report.html` with:
+Generates the report with:
 - Color-coded results
 - Sortable/filterable mutation list
 - Per-file breakdown
@@ -1027,7 +1039,7 @@ jobs:
         run: mix test
       
       - name: Run mutation testing
-        run: mix muex --fail-at 80 --format json
+        run: mix muex --fail-at 80 --format json --output muex-report.json
       
       - name: Upload mutation report
         uses: actions/upload-artifact@v2
@@ -1044,7 +1056,7 @@ mutation-test:
   script:
     - mix deps.get
     - mix test
-    - mix muex --fail-at 80 --format json
+    - mix muex --fail-at 80 --format json --output muex-report.json
   artifacts:
     paths:
       - muex-report.json

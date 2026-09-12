@@ -104,6 +104,7 @@ defmodule Muex.CLI do
         --timeout <ms>              Test timeout in milliseconds (default: 10000)
         --fail-at <score>           Minimum mutation score to pass (default: 80)
         --format <type>             Output format: terminal, json, html (default: terminal)
+        --output <file>             Write the json or html report to a file, print a summary line
         --min-score <score>         Minimum complexity score for files (default: 20)
         --max-mutations <n>         Maximum mutations to test (default: unlimited)
         --no-filter                 Disable intelligent file filtering
