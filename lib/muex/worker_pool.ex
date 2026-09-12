@@ -60,7 +60,8 @@ defmodule Muex.WorkerPool do
             dependency_map: map(),
             file_to_module: map(),
             sandboxes: list(),
-            available_sandboxes: :queue.queue()
+            available_sandboxes: :queue.queue(),
+            stop_reason: String.t() | nil
           }
 
     defstruct [
@@ -93,7 +94,9 @@ defmodule Muex.WorkerPool do
       # List of sandbox structs, one per worker slot
       sandboxes: [],
       # Queue of available sandbox indices
-      available_sandboxes: :queue.new()
+      available_sandboxes: :queue.new(),
+      # Why the run stopped early (see worker_result/5); nil while it runs
+      stop_reason: nil
     ]
   end
 
@@ -224,7 +227,8 @@ defmodule Muex.WorkerPool do
           completed_mutations: 0,
           locked_files: MapSet.new(),
           active_workers: %{},
-          monitor_to_worker: %{}
+          monitor_to_worker: %{},
+          stop_reason: nil
       }
 
       # Refuse, before any sandbox exists, a target the sandbox would share
@@ -368,16 +372,6 @@ defmodule Muex.WorkerPool do
         Process.demonitor(monitor_ref, [:flush])
 
         new_monitor_map = Map.delete(state.monitor_to_worker, monitor_ref)
-        new_completed = state.completed_mutations + 1
-
-        # Print progress
-        if Keyword.get(state.opts, :verbose, false) do
-          try do
-            Reporter.print_progress(result, new_completed, state.total_mutations)
-          rescue
-            UndefinedFunctionError -> :ok
-          end
-        end
 
         # Unlock the file and return the sandbox to the available pool
         new_locked = MapSet.delete(state.locked_files, file_path)
@@ -389,14 +383,14 @@ defmodule Muex.WorkerPool do
           state
           | active_workers: new_active,
             monitor_to_worker: new_monitor_map,
-            results: [result | state.results],
-            completed_mutations: new_completed,
             locked_files: new_locked,
             available_sandboxes: new_available,
             pending_by_file: new_pending
         }
 
-        maybe_finish_or_schedule(new_state)
+        new_state
+        |> record(result)
+        |> maybe_finish_or_schedule()
     end
   end
 
@@ -562,15 +556,50 @@ defmodule Muex.WorkerPool do
     end
   end
 
+  # A worker that found the run broken stops it (the first reason is kept); the
+  # others add their result.
+  defp record(state, {:stop, reason}), do: %{state | stop_reason: state.stop_reason || reason}
+
+  defp record(state, result) do
+    completed = state.completed_mutations + 1
+
+    if Keyword.get(state.opts, :verbose, false) do
+      try do
+        Reporter.print_progress(result, completed, state.total_mutations)
+      rescue
+        UndefinedFunctionError -> :ok
+      end
+    end
+
+    %{state | results: [result | state.results], completed_mutations: completed}
+  end
+
+  # Once the run is stopping no new mutant starts, and the reply waits for the
+  # ones already running so no `mix test` is left writing into a sandbox that is
+  # being removed. Nothing is scored, as when the baseline refuses a run.
   @spec maybe_finish_or_schedule(State.t()) :: {:noreply, State.t()}
   defp maybe_finish_or_schedule(state) do
-    if map_size(state.active_workers) == 0 and all_queues_empty?(state.pending_by_file) do
-      Sandbox.cleanup(state.sandboxes)
-      GenServer.reply(state.caller, Enum.reverse(state.results))
-      {:noreply, %{state | caller: nil}}
-    else
-      {:noreply, schedule_workers(state)}
+    idle = map_size(state.active_workers) == 0
+
+    cond do
+      idle and state.stop_reason != nil ->
+        finish(state, {:error, state.stop_reason})
+
+      idle and all_queues_empty?(state.pending_by_file) ->
+        finish(state, Enum.reverse(state.results))
+
+      state.stop_reason != nil ->
+        {:noreply, state}
+
+      true ->
+        {:noreply, schedule_workers(state)}
     end
+  end
+
+  defp finish(state, reply) do
+    Sandbox.cleanup(state.sandboxes)
+    GenServer.reply(state.caller, reply)
+    {:noreply, %{state | caller: nil}}
   end
 
   # -- Worker execution --
@@ -615,7 +644,19 @@ defmodule Muex.WorkerPool do
       end
 
     duration_ms = System.monotonic_time(:millisecond) - start_time
+    worker_result(mutation, result, judged_by, duration_ms, state.project_root)
+  rescue
+    e -> crashed(mutation, Exception.format_banner(:error, e, __STACKTRACE__))
+  catch
+    :exit, reason -> crashed(mutation, Exception.format_banner(:exit, reason))
+  end
 
+  # A mutant that ran into something broken outside it was not judged, so it is
+  # not a result: the worker asks the pool to stop the run instead.
+  defp worker_result(mutation, {:broken_run, output}, _judged_by, _duration_ms, project_root),
+    do: {:stop, broken_run_message(mutation, output, Sandbox.umbrella?(project_root))}
+
+  defp worker_result(mutation, result, judged_by, duration_ms, _project_root) do
     {result_type, error} = status_and_error(result)
 
     %{
@@ -625,10 +666,32 @@ defmodule Muex.WorkerPool do
       error: error,
       test_files: judged_by
     }
-  rescue
-    e -> crashed(mutation, Exception.format_banner(:error, e, __STACKTRACE__))
-  catch
-    :exit, reason -> crashed(mutation, Exception.format_banner(:exit, reason))
+  end
+
+  # An umbrella prints each app's paths relative to the app, under its "==> app"
+  # header, so the app is named with them. A plain project prints a header only
+  # for a dependency it compiles, and the project's own files can follow it.
+  defp broken_run_message(mutation, output, umbrella?) do
+    named =
+      output
+      |> PortRunner.error_files()
+      |> Enum.map(fn
+        {app, path} when umbrella? and is_binary(app) -> "#{path} (in #{app})"
+        {_project, path} -> path
+      end)
+      |> Enum.uniq()
+      |> case do
+        [] -> "no file named; see the output below"
+        paths -> Enum.join(paths, ", ")
+      end
+
+    """
+    muex: the run stopped. Testing a mutant of #{mutation.location.file}:#{mutation.location.line}
+    did not compile, or stopped before ExUnit reported, and it fails the same way with
+    NO mutation applied, so the cause is outside the mutant and every mutant left would
+    fail too. Nothing was scored. Named in the error: #{named}
+    #{output}
+    """
   end
 
   # The status a result is reported with, and the text its report shows.
@@ -709,20 +772,55 @@ defmodule Muex.WorkerPool do
   defp run_in_sandbox(sandbox, file_path, mutated_source, file_entry, test_files, timeout_ms) do
     case Sandbox.apply_mutation(sandbox, file_path, mutated_source, file_entry.module_name) do
       {:ok, _precompiled} ->
+        run_opts = [timeout_ms: timeout_ms, cd: sandbox.root]
+
         # Wrap in try/after so the sandbox is always restored, even if
         # PortRunner.run_tests raises an exception.
-        try do
-          test_files
-          |> PortRunner.run_tests(timeout_ms: timeout_ms, cd: sandbox.root)
-          |> classify_test_result()
-        after
-          Sandbox.restore(sandbox, file_path)
-        end
+        result =
+          try do
+            PortRunner.run_tests(test_files, run_opts)
+          after
+            Sandbox.restore(sandbox, file_path)
+          end
+
+        result
+        |> blame(test_files, run_opts)
+        |> classify_test_result()
 
       {:error, reason} ->
         {:invalid, reason}
     end
   end
+
+  # `mix test` compiles the whole project and runs every chosen test file, not
+  # only the mutated file, so a run that did not compile, or stopped before
+  # ExUnit reported, is the mutant's doing only if the unmutated tree is fine.
+  # Which file the error names cannot settle that: a mutant can break a file that
+  # depends on it (a caller of a macro it changed), and a change elsewhere can
+  # break the mutated file. So run the same tests on the restored sandbox: when
+  # the compile failed, with every test excluded, which compiles and loads
+  # everything and runs nothing; otherwise (a test that halts the VM, an app
+  # that stops starting) with the tests. If that fails the same way, something
+  # outside the mutant is broken (a file edited mid-run, a sibling app, a test
+  # file) and every mutant after this one would fail too. If it passes, the
+  # mutant is invalid.
+  defp blame({:error, {kind, output}} = result, test_files, run_opts)
+       when kind in [:compile_error, :no_test_summary] do
+    opts =
+      if PortRunner.compile_failed?(output), do: [exclude_all: true] ++ run_opts, else: run_opts
+
+    case PortRunner.run_tests(test_files, opts) do
+      {:error, {unmutated_kind, unmutated}}
+      when unmutated_kind in [:compile_error, :no_test_summary] ->
+        {:error, {:broken_without_mutation, unmutated}}
+
+      # A pass, a failure, a timeout or a crash: the unmutated run got through.
+      _unmutated ->
+        result
+    end
+  end
+
+  defp blame(result, _test_files, _run_opts), do: result
 
   # Every chosen test was excluded, skipped or invalid: `mix test` exits 0 with
   # "Result: 0 tests, N excluded", but nothing ran against the mutant, so it did
@@ -741,6 +839,10 @@ defmodule Muex.WorkerPool do
     do: {:killed, killed_by(output)}
 
   defp classify_test_result({:error, :timeout}), do: :timeout
+
+  defp classify_test_result({:error, {:broken_without_mutation, output}}),
+    do: {:broken_run, output}
+
   defp classify_test_result({:error, reason}), do: {:invalid, reason}
 
   # The summary lines ExUnit printed (one per app in an umbrella), joined, for a

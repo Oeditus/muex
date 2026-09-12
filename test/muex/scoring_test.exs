@@ -107,6 +107,134 @@ defmodule Muex.ScoringTest do
     assert message =~ "apps/a/test/a_test.exs"
   end
 
+  # A file the mutant does not touch fails to compile (here from the start; in
+  # the run that found this, a dependency edited mid-run). Every mutant would
+  # come back invalid, blamed for an error in another file, and the score would
+  # read as if the run were healthy. It stops instead and names the file.
+  #
+  # The mutated file also prints a warning of its own, which the compiler shows
+  # beside the error: it is not the error's cause and must not be read as one.
+  test "a compile error in a file the mutant did not touch stops the run and names the file",
+       %{tmp_dir: tmp_dir} do
+    project = write_tiny_project!(tmp_dir, "")
+
+    File.write!(lib_file(project), """
+    defmodule Tiny do
+      def add(a, b), do: a + b
+      def noisy(unused), do: 1
+    end
+    """)
+
+    File.write!(
+      Path.join(project, "lib/broken.ex"),
+      "defmodule Broken do\n  def f, do: nope()\nend\n"
+    )
+
+    assert {:error, message} = run_quietly(config!(project, "terminal", files: lib_file(project)))
+    assert message =~ "Named in the error: lib/broken.ex\n"
+    assert message =~ "NO mutation applied"
+    assert message =~ "lib/tiny.ex:"
+  end
+
+  # A change outside the mutated file can break the mutated file itself: here
+  # the function it imports is gone. The error names the mutated file, but the
+  # cause is outside the mutant, and every mutant of this file would be blamed.
+  test "a mutated file that another file broke stops the run", %{tmp_dir: tmp_dir} do
+    project = write_tiny_project!(tmp_dir, "")
+
+    File.write!(lib_file(project), """
+    defmodule Tiny do
+      import Helper
+      def add(a, b), do: twice(a) + b
+    end
+    """)
+
+    File.write!(
+      Path.join(project, "lib/helper.ex"),
+      "defmodule Helper do\n  def once(x), do: x\nend\n"
+    )
+
+    assert {:error, message} = run_quietly(config!(project, "terminal", files: lib_file(project)))
+    assert message =~ "Named in the error: lib/tiny.ex\n"
+    assert message =~ "NO mutation applied"
+  end
+
+  # A test that halts the VM stops every run before ExUnit reports, with or
+  # without the mutant. With no baseline in a plain project, nothing else would
+  # notice, and every mutant would be scored invalid. The exception text it
+  # prints first makes the run look like a compile error, which it is not.
+  test "a test that stops the run before ExUnit reports stops the whole run",
+       %{tmp_dir: tmp_dir} do
+    project = write_tiny_project!(tmp_dir, "")
+
+    File.write!(Path.join(project, "test/tiny_test.exs"), """
+    defmodule TinyTest do
+      use ExUnit.Case
+      test "add/2" do
+        assert Tiny.add(2, 3) == 5
+        IO.puts("** (ArgumentError) something unrelated")
+        System.halt(1)
+      end
+    end
+    """)
+
+    assert {:error, message} = run_quietly(config!(project, "terminal"))
+    assert message =~ "stopped before ExUnit reported"
+    assert message =~ "NO mutation applied"
+  end
+
+  # The mutant can break a file other than its own: a caller of a macro it
+  # changed. That is still the mutant's doing, so it is invalid, and the run
+  # goes on. So is a mutant that breaks its own file. Both fail a
+  # --warnings-as-errors build with "size(2.0)" in a binary pattern.
+  test "a mutant that breaks its own file or a caller of its macro is invalid and the run goes on",
+       %{tmp_dir: tmp_dir} do
+    project = write_macro_project!(tmp_dir)
+
+    capture_io(fn ->
+      assert {:ok, %{results: results}} =
+               Muex.run(config!(project, "terminal", files: lib_file(project)))
+
+      # A warning under --warnings-as-errors (or, where an Elixir version
+      # rejects the size outright, a compile error) in the file with the pattern.
+      own = invalid_at!(results, 2)
+      assert {kind, own_output} = own.error
+      assert kind in [:no_test_summary, :compile_error]
+      assert own_output =~ "lib/tiny.ex"
+
+      caller = invalid_at!(results, 3)
+      assert {kind, caller_output} = caller.error
+      assert kind in [:no_test_summary, :compile_error]
+      assert caller_output =~ "lib/caller.ex"
+      refute caller_output =~ "lib/tiny.ex:"
+
+      assert Enum.any?(results, &(&1.result == :killed))
+    end)
+  end
+
+  defp lib_file(project), do: Path.join(project, "lib/tiny.ex")
+
+  defp run_quietly(config) do
+    {result, _stderr} =
+      with_io(:stderr, fn ->
+        {result, _stdout} = with_io(fn -> Muex.run(config) end)
+        result
+      end)
+
+    result
+  end
+
+  defp invalid_at!(results, line) do
+    [result] =
+      Enum.filter(
+        results,
+        &(&1.mutation.location.line == line and &1.mutation.description =~ "* to /")
+      )
+
+    assert result.result == :invalid
+    result
+  end
+
   defp config!(project, format, extra \\ []) do
     opts =
       [
@@ -119,7 +247,8 @@ defmodule Muex.ScoringTest do
         no_filter: true,
         no_optimize: true,
         format: format
-      ] ++ extra
+      ]
+      |> Keyword.merge(extra)
 
     {:ok, config} = Config.from_opts(opts)
     config
@@ -164,6 +293,49 @@ defmodule Muex.ScoringTest do
         #{tag}
         test "add/2" do
           assert Tiny.add(2, 3) == 5
+        end
+      end
+      """
+    })
+
+    root
+  end
+
+  # Line 2's `4 * 2` sizes a binary pattern in this file, line 3's inside a
+  # macro that Caller uses in its own pattern. `* to /` makes either size a
+  # float, which the compiler warns about in the file holding the pattern.
+  defp write_macro_project!(tmp_dir) do
+    root = Path.join(tmp_dir, "tiny")
+
+    write_files!(root, %{
+      "mix.exs" => """
+      defmodule Tiny.MixProject do
+        use Mix.Project
+
+        def project,
+          do: [app: :tiny, version: "0.1.0", elixir: "~> 1.15", elixirc_options: [warnings_as_errors: true]]
+      end
+      """,
+      "lib/tiny.ex" => """
+      defmodule Tiny do
+        @width 4 * 2
+        defmacro width, do: 2 * 4
+        def first(<<x::size(@width), _::binary>>), do: x
+      end
+      """,
+      "lib/caller.ex" => """
+      defmodule Caller do
+        require Tiny
+        def first(<<x::size(Tiny.width()), _::binary>>), do: x
+      end
+      """,
+      "test/test_helper.exs" => "ExUnit.start()\n",
+      "test/tiny_test.exs" => """
+      defmodule TinyTest do
+        use ExUnit.Case
+        test "first/1" do
+          assert Tiny.first(<<1, 2>>) == 1
+          assert Caller.first(<<1, 2>>) == 1
         end
       end
       """

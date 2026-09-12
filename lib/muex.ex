@@ -327,7 +327,8 @@ defmodule Muex do
   defp with_equivalents(results, equivalent_results), do: results ++ equivalent_results
 
   # The worker pool answers {:error, reason} when it refused the run before any
-  # mutant ran (see Muex.Sandbox.Error). Nothing is scored.
+  # mutant ran (see Muex.Sandbox.Error), or stopped it because something outside
+  # the mutants is broken. Nothing is scored.
   defp report({:error, _reason} = err, _config), do: err
 
   defp report(results, config) do

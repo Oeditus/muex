@@ -28,6 +28,9 @@ defmodule Muex.TestRunner.Port do
       - `:mix_env` - Mix environment (default: "test")
       - `:cd` - Working directory for the port process (default: current dir).
         When running inside a sandbox, this should be the sandbox root.
+      - `:exclude_all` - Exclude every test (`--exclude test`), so the run
+        compiles the project and loads the test files but runs nothing
+        (default: false).
 
   ## Returns
 
@@ -39,9 +42,10 @@ defmodule Muex.TestRunner.Port do
     mix_env = Keyword.get(opts, :mix_env, "test")
     cd = Keyword.get(opts, :cd)
     no_compile = Keyword.get(opts, :no_compile, false)
+    exclude_flags = if Keyword.get(opts, :exclude_all, false), do: ["--exclude", "test"], else: []
     start_time = System.monotonic_time(:millisecond)
 
-    case spawn_test_port(test_files, mix_env, timeout_ms, cd, no_compile) do
+    case spawn_test_port(test_files, mix_env, timeout_ms, cd, no_compile, exclude_flags) do
       {:ok, output, exit_code} ->
         duration_ms = System.monotonic_time(:millisecond) - start_time
 
@@ -68,7 +72,7 @@ defmodule Muex.TestRunner.Port do
     end
   end
 
-  defp spawn_test_port(test_files, mix_env, timeout_ms, cd, no_compile) do
+  defp spawn_test_port(test_files, mix_env, timeout_ms, cd, no_compile, exclude_flags) do
     # When the caller pre-compiled the mutated module and wrote the .beam
     # directly, we pass --no-compile to skip Mix's compilation phase entirely.
     # We also always pass --no-deps-check and --no-archives-check since deps
@@ -83,7 +87,7 @@ defmodule Muex.TestRunner.Port do
     mix_path = System.find_executable("mix")
     # --max-failures 1: a mutant is killed by any failing test, so stop at the
     # first one instead of running the whole (selected) suite.
-    args = ["test", "--max-failures", "1"] ++ compile_flags ++ test_files
+    args = ["test", "--max-failures", "1"] ++ compile_flags ++ exclude_flags ++ test_files
 
     current_env =
       System.get_env()
@@ -299,5 +303,79 @@ defmodule Muex.TestRunner.Port do
     |> List.flatten()
     |> Enum.map(&String.to_integer/1)
     |> Enum.sum()
+  end
+
+  @project_header ~r/^==> (\S+)$/
+  # Three attributes, not a list of three: OTP 28 regexes hold a reference,
+  # and only a bare regex attribute can be injected into a function body.
+  # "== Compilation error in file lib/b.ex =="
+  @compilation_error_file ~r/^== Compilation error in file (\S+) ==$/
+  # "** (CompileError) lib/b.ex: cannot compile module B", "** (SyntaxError)
+  # lib/b.ex:3:1: ..." (1.15), "** (TokenMissingError) token missing on lib/b.ex:2:15:"
+  @exception_file ~r/^\*\* \([\w.]+\) (?:.*? on )?(\S+?\.exs?):/
+  # the pointer under each diagnostic: "└─ lib/b.ex:3:1", "└─ lib/b.ex: B.f/1"
+  @diagnostic_file ~r/^\s*└─ (\S+?\.exs?)(?::|$)/u
+  # the same on Elixir 1.15, an indented line: "  lib/b.ex:3", "  lib/a.ex:3: A.add/2"
+  @plain_diagnostic_file ~r/^\s+(\S+?\.exs?):\d+(?::\d+)?(?::|$)/
+  # "    error: undefined function ...", "warning: variable "b" is unused ..."
+  @diagnostic_kind ~r/^\s*(error|warning): /
+  @warnings_failed "Compilation failed due to warnings"
+
+  @doc false
+  # Each file a failed compile names as a cause, with the Mix project it was
+  # compiled in: the last "==> app" header before it, which an umbrella prints
+  # for each app and a plain project only for its dependencies (so nil, or a
+  # dependency's name, for the project's own files). Paths are as the compiler
+  # printed them, relative to that project. The file is named on the
+  # "== Compilation error in file" line, on the "** (SomeError)" line, and under
+  # each diagnostic. A warning's file counts only when warnings are what failed
+  # the build (--warnings-as-errors): a warning printed beside an error in
+  # another file is not its cause. A diagnostic ends at its pointer, or at the
+  # next "==" or "**" line, so the stack trace after it is not read as one.
+  @spec error_files(String.t()) :: [{String.t() | nil, String.t()}]
+  def error_files(output) do
+    plain = String.replace(output, @ansi_escape, "")
+    warnings_fail? = String.contains?(plain, @warnings_failed)
+
+    {_project, _kind, files} =
+      plain
+      |> String.split("\n")
+      |> Enum.reduce({nil, nil, []}, fn line, {project, kind, files} ->
+        case {Regex.run(@project_header, line, capture: :all_but_first),
+              Regex.run(@diagnostic_kind, line, capture: :all_but_first)} do
+          {[name], _} ->
+            {name, nil, files}
+
+          {nil, [new_kind]} ->
+            {project, new_kind, files}
+
+          {nil, nil} ->
+            counts? = kind == "error" or (kind == "warning" and warnings_fail?)
+
+            pointer =
+              if counts?, do: matches([@diagnostic_file, @plain_diagnostic_file], line), else: []
+
+            paths = matches([@compilation_error_file, @exception_file], line) ++ pointer
+            ended? = pointer != [] or String.starts_with?(line, ["== ", "** ("])
+
+            {project, if(ended?, do: nil, else: kind),
+             Enum.reverse(Enum.map(paths, &{project, &1}), files)}
+        end
+      end)
+
+    files |> Enum.reverse() |> Enum.uniq()
+  end
+
+  defp matches(patterns, line) do
+    Enum.flat_map(patterns, &(Regex.run(&1, line, capture: :all_but_first) || []))
+  end
+
+  @doc false
+  # Whether the output shows a failed compile, as opposed to a run that got past
+  # compiling and then stopped before ExUnit reported.
+  @spec compile_failed?(String.t()) :: boolean()
+  def compile_failed?(output) do
+    String.contains?(output, "== Compilation error in file") or
+      String.contains?(output, @warnings_failed)
   end
 end
