@@ -52,13 +52,42 @@ defmodule Muex.ScoringTest do
 
     assert equivalent["location"]["line"] == 3
     assert equivalent["description"] =~ "+ to -"
-    assert equivalent["error"] =~ "cannot change behaviour"
+    assert equivalent["error"] =~ "judged equivalent by Muex.Equivalence"
     assert report["summary"]["equivalent"] == 1
     assert report["summary"]["no_coverage"] == 0
 
     # Left out of the score: add/2's two mutants are killed, same/1's other
     # mutant (x + 0 to 0) survives because the test never checks same/1.
     assert report["summary"]["mutation_score_low"] == 66.67
+  end
+
+  # With only equivalent mutants left there is nothing to score. They are still
+  # reported, but the result is the same as a run with no mutants, so the CLI
+  # and the Mix task exit as they did before equivalents were reported.
+  test "a run with only equivalent mutants left reports them and scores nothing",
+       %{tmp_dir: tmp_dir} do
+    project = write_tiny_project!(tmp_dir, "")
+
+    {:ok, config} =
+      Config.from_opts(
+        files: Path.join(project, "lib"),
+        test_paths: Path.join(project, "test"),
+        project_root: project,
+        mutators: "arithmetic",
+        concurrency: 1,
+        timeout: 60_000,
+        no_filter: true,
+        # The optimizer drops every mutant that is not equivalent.
+        min_complexity: 99
+      )
+
+    output =
+      capture_io(fn ->
+        assert {:ok, %{results: [], score_low: +0.0, score_high: +0.0}} = Muex.run(config)
+      end)
+
+    assert output =~ "Equivalent:"
+    assert output =~ "Total mutants:"
   end
 
   # The umbrella baseline runs the chosen tests once with no mutation. When all

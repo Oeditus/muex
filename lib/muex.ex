@@ -141,7 +141,7 @@ defmodule Muex do
 
         cond do
           all_mutations != [] -> run_mutations(config, files, all_mutations, equivalent_results)
-          equivalent_results != [] -> report(equivalent_results, config)
+          equivalent_results != [] -> report_unscored(equivalent_results, config)
           true -> {:ok, %{results: [], score_low: 0.0, score_high: 0.0}}
         end
     end
@@ -225,7 +225,7 @@ defmodule Muex do
       mutation: mutation,
       result: :equivalent,
       duration_ms: 0,
-      error: "cannot change behaviour, so it was not run (Muex.Equivalence)",
+      error: "judged equivalent by Muex.Equivalence, so it was not run",
       test_files: []
     }
   end
@@ -311,6 +311,16 @@ defmodule Muex do
     results
     |> with_equivalents(equivalent_results)
     |> report(config)
+  end
+
+  # Nothing was left to run, only mutants judged equivalent. The report shows
+  # them, but the result is the same as for a run with no mutants, so the escript
+  # and the Mix task exit exactly as they did before equivalents were reported.
+  defp report_unscored(equivalent_results, config) do
+    case output_report(equivalent_results, config) do
+      {:error, _} = err -> err
+      _ -> {:ok, %{results: [], score_low: 0.0, score_high: 0.0}}
+    end
   end
 
   defp with_equivalents({:error, _reason} = err, _equivalent_results), do: err
