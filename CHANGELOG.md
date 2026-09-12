@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.10.0] - 2026-09-12
 
 ### Fixed
 - **Umbrella Project Root**: `--app <app>` now resolves the umbrella root as the project root instead of `apps/<app>`, whose `config_path: "../../config/config.exs"` pointed outside the sandbox.
