@@ -33,6 +33,8 @@ defmodule Muex.Reporter.Html do
     survived = Enum.count(results, &(&1.result == :survived))
     invalid = Enum.count(results, &(&1.result == :invalid))
     timeout = Enum.count(results, &(&1.result == :timeout))
+    equivalent = Enum.count(results, &(&1.result == :equivalent))
+    no_coverage = Enum.count(results, &(&1.result == :no_coverage))
 
     denom = killed + survived + timeout
 
@@ -91,6 +93,8 @@ defmodule Muex.Reporter.Html do
         .summary-card.survived { background: #fadbd8; border-left: 4px solid #e74c3c; }
         .summary-card.invalid { background: #fff4e6; border-left: 4px solid #f39c12; }
         .summary-card.timeout { background: #e8daef; border-left: 4px solid #8e44ad; }
+        .summary-card.equivalent { background: #eef2f3; border-left: 4px solid #7f8c8d; }
+        .summary-card.no_coverage { background: #eef2f3; border-left: 4px solid #34495e; }
         .summary-card.score {
           background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
           color: white;
@@ -143,6 +147,8 @@ defmodule Muex.Reporter.Html do
         .mutation.survived { border-left-color: #e74c3c; }
         .mutation.invalid { border-left-color: #f39c12; }
         .mutation.timeout { border-left-color: #8e44ad; }
+        .mutation.equivalent { border-left-color: #7f8c8d; }
+        .mutation.no_coverage { border-left-color: #34495e; }
         .mutation-header {
           display: flex;
           justify-content: space-between;
@@ -160,6 +166,8 @@ defmodule Muex.Reporter.Html do
         .status-survived { background: #e74c3c; color: white; }
         .status-invalid { background: #f39c12; color: white; }
         .status-timeout { background: #8e44ad; color: white; }
+        .status-equivalent { background: #7f8c8d; color: white; }
+        .status-no_coverage { background: #34495e; color: white; }
         .mutation-location {
           font-family: 'Monaco', 'Courier New', monospace;
           font-size: 0.9em;
@@ -222,6 +230,14 @@ defmodule Muex.Reporter.Html do
             <div class="summary-label">Timeout</div>
             <div class="summary-number">#{timeout}</div>
           </div>
+          <div class="summary-card equivalent">
+            <div class="summary-label">Equivalent</div>
+            <div class="summary-number">#{equivalent}</div>
+          </div>
+          <div class="summary-card no_coverage">
+            <div class="summary-label">No Coverage</div>
+            <div class="summary-number">#{no_coverage}</div>
+          </div>
           <div class="summary-card score">
             <div class="summary-label">Mutation Score</div>
             <div class="summary-number">#{score_str}</div>
@@ -234,6 +250,8 @@ defmodule Muex.Reporter.Html do
           <button class="filter-btn" data-filter="survived">Survived</button>
           <button class="filter-btn" data-filter="invalid">Invalid</button>
           <button class="filter-btn" data-filter="timeout">Timeout</button>
+          <button class="filter-btn" data-filter="equivalent">Equivalent</button>
+          <button class="filter-btn" data-filter="no_coverage">No Coverage</button>
         </div>
 
         <div class="mutations">
