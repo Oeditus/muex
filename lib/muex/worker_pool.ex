@@ -316,7 +316,7 @@ defmodule Muex.WorkerPool do
   defp run_baseline!([], _sandbox, _state), do: :ok
 
   defp run_baseline!(test_files, sandbox, state) do
-    timeout_ms = Keyword.get(state.opts, :timeout_ms, 5000)
+    timeout_ms = Keyword.get(state.opts, :timeout_ms, 5_000)
     started = System.monotonic_time(:millisecond)
     result = PortRunner.run_tests(test_files, timeout_ms: timeout_ms, cd: sandbox.root)
     elapsed = System.monotonic_time(:millisecond) - started
