@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Unknown Format**: `--format` is validated with the other options, so an unknown format is refused before the run instead of after it.
 - **HTML Write Errors**: A failed write of `muex-report.html` is reported as an error instead of being logged as generated.
 - **Docs**: README and USAGE said `--format json` writes `muex-report.json`; it prints to stdout. The CI examples now pass `--output muex-report.json`, so the artifact they upload exists.
+- **Tests That Never Ran**: When every test chosen for a mutant was excluded, skipped or invalid, `mix test` exited 0 with `Result: 0 tests` (or `N tests, 0 failures, N excluded` before Elixir 1.20) and the mutant was scored survived. It is now `:no_coverage`, with the summary in its `error`, and the terminal says the chosen tests ran none. The umbrella baseline refuses the run when its tests ran none, instead of reporting green.
+- **Uncompiled Mutants Scored Killed**: Mix treats a file as unchanged when its size and its mtime (whole seconds) match the last compile, so a mutant the same size as the one before it, written within the same second, was never compiled. Its module was missing, every test failed, and the mutant was scored killed without being tested. Each mutant is now padded with trailing newlines to a size no compile has seen; no code or line number changes.
+- **Worker Crashes**: An exception or exit inside muex while running a mutant was recorded as `:timeout`, which the high bound of the score counts as killed. It is now `:invalid`, with the error in the report.
+- **Equivalent Mutants**: Mutants `Muex.Equivalence` judges equivalent were dropped before the run and appeared in no report, although the README says they are reported. They are now results with status `:equivalent`, shown in every report and still left out of the score. The JSON summary now counts `equivalent` and `no_coverage`, and the HTML report has cards and filters for both.
 
 ## [0.10.0] - 2026-09-12
 
