@@ -1149,6 +1149,12 @@ end
 - Disable specific mutators causing issues
 - Report issue with code example
 
+A compile error the mutant did not cause is not counted as invalid. For each
+mutant that fails to compile or to report, muex runs the same tests again with
+no mutation applied; if they still fail to compile or to report (a failing
+test does not count), the run stops and names the file, because every mutant
+after it would fail the same way.
+
 ### False Positives
 
 **Problem**: Mutation survived but test should have caught it
