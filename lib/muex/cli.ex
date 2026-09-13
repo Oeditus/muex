@@ -97,6 +97,8 @@ defmodule Muex.CLI do
         --path <pattern>            Synonym for --files
         --app <name>               Target app in umbrella project
         --test-paths <paths>       Comma-separated test dirs/files/globs (default: "test")
+        --mirror <dirs>            Comma-separated extra top-level dirs to symlink into
+                                   sandboxes besides defaults (default: none)
         --language <lang>           Language adapter: elixir, erlang (default: elixir)
         --mutators <list>           Comma-separated mutators (default: all)
         --mutator-paths <dirs>      Comma-separated dirs with custom mutators

@@ -12,6 +12,7 @@ defmodule Mix.Tasks.Muex do
     * `--path` - Synonym for --files
     * `--app` - Target a specific app in an umbrella project (sets --files and --test-paths automatically)
     * `--test-paths` - Comma-separated test directories, files, or glob patterns (default: "test")
+    * `--mirror` - Comma-separated extra top-level directories to symlink into sandboxes besides the defaults (default: none)
     * `--language` - Language adapter to use (default: "elixir")
     * `--mutators` - Comma-separated list of mutators (default: all)
     * `--concurrency` - Number of parallel mutations (default: number of schedulers)

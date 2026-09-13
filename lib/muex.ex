@@ -305,7 +305,8 @@ defmodule Muex do
         test_paths: abs_test_paths,
         project_root: config.project_root,
         tce: config.tce,
-        coverage_index: coverage_index
+        coverage_index: coverage_index,
+        mirror: config.mirror
       )
 
     results

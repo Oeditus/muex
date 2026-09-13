@@ -202,6 +202,7 @@ defmodule Muex.WorkerPool do
       # Create sandboxes for parallel workers
       test_paths = Keyword.get(opts, :test_paths, ["test"])
       project_root = Keyword.get(opts, :project_root, File.cwd!())
+      mirror = Keyword.get(opts, :mirror, [])
 
       # Group mutations by file path into per-file queues
       pending_by_file =
@@ -242,7 +243,8 @@ defmodule Muex.WorkerPool do
       sandboxes =
         Sandbox.create_pool(min(state.max_workers, map_size(pending_by_file)),
           project_root: project_root,
-          test_paths: test_paths
+          test_paths: test_paths,
+          mirror: mirror
         )
 
       available_sandboxes =
