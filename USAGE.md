@@ -411,7 +411,7 @@ Some mutations cannot change observable behaviour, so no test could ever kill
 them. Counting them as survivors would deflate the score, so Muex drops them
 soundly (it never drops a killable mutant):
 
-- AST identity rules (for example `a + 0` vs `a - 0`, `a * 1` vs `a / 1`).
+- AST identity rules (for example `a + 0` vs `a - 0`, `x <<< 0` vs `x >>> 0`).
 - Trivial Compiler Equivalence (TCE): mutants that compile to byte-identical
   BEAM, such as deleting a `@moduledoc`.
 

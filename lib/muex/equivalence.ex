@@ -15,8 +15,7 @@ defmodule Muex.Equivalence do
   Two layers are consulted:
 
     1. AST-pattern rules for arithmetic/identity cases that are equivalent by
-       construction (`a + 0` vs `a - 0`, `a * 1` vs `a / 1`, `x <<< 0` vs
-       `x >>> 0`).
+       construction (`a + 0` vs `a - 0`, `x <<< 0` vs `x >>> 0`).
     2. The per-mutator `Muex.Mutator.equivalent?/1` hook and the explicit
        `:equivalent` flag, for cases a mutator declares itself.
 
@@ -50,9 +49,11 @@ defmodule Muex.Equivalence do
 
   # Operators that yield the original operand when applied with the identity
   # element on the right. Swapping within a group is therefore equivalent:
-  #   `a + 0` <-> `a - 0`, `a * 1` <-> `a / 1`, `x <<< 0` <-> `x >>> 0`.
+  #   `a + 0` <-> `a - 0`, `x <<< 0` <-> `x >>> 0`.
   # The identity operand must be the *right* side (`0 - a` is `-a`, not `a`).
-  @identity_groups [{[:+, :-], 0}, {[:*, :/], 1}, {[:<<<, :>>>], 0}]
+  # `*` and `/` are not a group: `/` always returns a float, so `a / 1` is
+  # `2.0` where `a * 1` is `2`, and a test can tell them apart.
+  @identity_groups [{[:+, :-], 0}, {[:<<<, :>>>], 0}]
 
   defp identity_pair?({op1, _, [left1, n]}, {op2, _, [left2, n]}) do
     same_group? =
