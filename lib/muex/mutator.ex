@@ -188,6 +188,8 @@ defmodule Muex.Mutator do
       `@macrocallback`, `@behaviour`, `@impl`, `@derive`, `@enforce_keys`.
     * Keyword/option keys: in a `key: value` pair only `value` is
       traversed, never the atom `key`.
+    * The `/` of a function capture (`&Mod.fun/arity`, `&fun/arity`),
+      which names the arity; the function and the arity are traversed.
 
   Callers can prune additional framework DSL calls by passing a list of
   call names (atoms) in `context[:skip_calls]`. For example,
@@ -271,6 +273,31 @@ defmodule Muex.Mutator do
       collect_args(pairs, mutators, context, skip_calls)
   end
 
+  # Function capture: `&Mod.fun/arity` and `&fun/arity`. The `/` names the
+  # arity; it is neither division nor a call, so mutating it only makes captures
+  # that do not compile (`&(Path.dirname() * 1)`, `&1`). Visit the function and
+  # the arity, never the `/` node. `&(&1 / 2)` is division and is walked as
+  # usual: what tells the two apart is the left operand, the same test
+  # Elixir's capture expansion uses.
+  defp collect_children(
+         {:&, _meta, [{:/, _slash_meta, [function, arity]} = slash] = args},
+         mutators,
+         context,
+         skip_calls
+       )
+       when is_integer(arity) do
+    case function_reference?(function) do
+      true ->
+        context = update_line(context, slash)
+
+        collect(function, mutators, context, skip_calls) ++
+          collect(arity, mutators, context, skip_calls)
+
+      false ->
+        collect_args(args, mutators, context, skip_calls)
+    end
+  end
+
   # Call with an atom form: descend into args only. This mirrors
   # `Macro.traverse/4`, which does not visit the call name itself.
   defp collect_children({form, _meta, args}, mutators, context, skip_calls)
@@ -311,6 +338,16 @@ defmodule Muex.Mutator do
   defp collect_args(args, mutators, context, skip_calls) do
     collect(args, mutators, context, skip_calls)
   end
+
+  # The left operand of `/` in `&(left / arity)` when Elixir reads the capture
+  # as a function reference: a remote `Mod.fun` (no arguments) or a local `fun`.
+  defp function_reference?({{:., _dot_meta, [_module, fun]}, _meta, []}) when is_atom(fun),
+    do: true
+
+  defp function_reference?({fun, _meta, context}) when is_atom(fun) and is_atom(context),
+    do: true
+
+  defp function_reference?(_left), do: false
 
   # Module alias segments: pure structural metadata.
   defp skip?({:__aliases__, _meta, _segments}, _skip_calls), do: true

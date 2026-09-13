@@ -176,6 +176,58 @@ defmodule Muex.Mutator.WalkTest do
 
       assert Enum.any?(mutations, &match?({:|, _meta, _args}, &1.original_ast))
     end
+
+    test "the `/` of a function capture is skipped but its operands are mutated" do
+      # `&Path.dirname/1` and `&double/1` put a `/` under `&` that names the
+      # arity. FunctionCall treated it as a call and removed it or swapped its
+      # arguments, Arithmetic as division: none of those is a valid capture.
+      ast =
+        ast!("""
+        defmodule Sample do
+          def run(xs), do: xs |> Enum.map(&Path.dirname/1) |> Enum.map(&double/2)
+        end
+        """)
+
+      mutations = Mutator.walk(ast, [Literal, FunctionCall, Arithmetic], %{file: "s.ex"})
+
+      refute Enum.any?(mutations, &match?({:/, _meta, _args}, &1.original_ast))
+
+      # Pre-order: the function before its arity.
+      assert [:dirname, 1, 1, 2, 2] =
+               mutations
+               |> Enum.map(& &1.original_ast)
+               |> Enum.filter(&(&1 in [:dirname, 1, 2]))
+    end
+
+    test "the operands of a capture's `/` take the `/` line" do
+      ast =
+        ast!("""
+        defmodule Sample do
+          def run(xs) do
+            Enum.map(xs, &(
+              Path.dirname/1
+            ))
+          end
+        end
+        """)
+
+      mutations = Mutator.walk(ast, [Literal], %{file: "s.ex"})
+
+      assert [4, 4] = for(%{original_ast: 1} = m <- mutations, do: m.location.line)
+    end
+
+    test "the `/` of division inside a capture is still mutated" do
+      ast =
+        ast!("""
+        defmodule Sample do
+          def halve(xs), do: Enum.map(xs, &(&1 / 2))
+        end
+        """)
+
+      mutations = Mutator.walk(ast, [FunctionCall, Arithmetic], %{file: "s.ex"})
+
+      assert Enum.any?(mutations, &match?({:/, _meta, _args}, &1.original_ast))
+    end
   end
 
   describe "configurable skip_calls" do
