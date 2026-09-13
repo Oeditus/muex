@@ -320,6 +320,8 @@ defmodule Muex.Sandbox do
     # can swap individual source files.
     ensure_app_mirrored_for_file(sandbox, original_path)
 
+    ensure_path_mirrored_for_file(sandbox, original_path)
+
     # Ensure the mutated app's build dir is a real copy (not a symlink)
     # so this sandbox can recompile independently.
     ensure_build_copy_for_file(sandbox, original_path)
@@ -329,6 +331,41 @@ defmodule Muex.Sandbox do
       write_mutant(sandbox, sandbox_path, original_path, mutated_source, module_name)
     else
       {:error, {:outside_sandbox, original_path}}
+    end
+  end
+
+  @managed_top_level ~w(lib test spec deps _build apps config priv .git)
+
+  defp ensure_path_mirrored_for_file(sandbox, original_path) do
+    dirs = original_path |> Path.dirname() |> Path.split()
+
+    case dirs do
+      [first | _] when first in @managed_top_level -> :ok
+      _ -> mirror_symlinked_dirs(dirs, sandbox.root)
+    end
+  end
+
+  defp mirror_symlinked_dirs([], _root), do: :ok
+
+  defp mirror_symlinked_dirs([dir | rest], root) do
+    path = Path.join(root, dir)
+
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :symlink}} ->
+        {:ok, target} = File.read_link(path)
+        target = if Path.type(target) == :absolute, do: target, else: Path.expand(target, root)
+        File.rm(path)
+        File.mkdir_p!(path)
+
+        target
+        |> File.ls!()
+        |> Enum.each(&safe_symlink(Path.join(target, &1), Path.join(path, &1)))
+
+      {:ok, %File.Stat{type: :directory}} ->
+        mirror_symlinked_dirs(rest, path)
+
+      _ ->
+        :ok
     end
   end
 
@@ -422,9 +459,18 @@ defmodule Muex.Sandbox do
       end
     end
 
-    top_level_dirs = ~w(config priv)
+    managed = ~w(lib test spec deps _build .git config priv)
 
-    for dir <- top_level_dirs do
+    project_root
+    |> File.ls!()
+    |> Enum.filter(fn entry ->
+      entry not in managed and File.dir?(Path.join(project_root, entry))
+    end)
+    |> Enum.each(fn dir ->
+      safe_symlink(Path.join(project_root, dir), Path.join(root, dir))
+    end)
+
+    for dir <- ~w(config priv) do
       source = Path.join(project_root, dir)
 
       if File.dir?(source) do
