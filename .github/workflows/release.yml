@@ -19,8 +19,8 @@ jobs:
       - name: Set up Elixir
         uses: erlef/setup-beam@v1
         with:
-          elixir-version: '1.16'
-          otp-version: '26'
+          elixir-version: '1.20'
+          otp-version: '29'
 
       - name: Extract version from tag
         id: version
@@ -173,8 +173,8 @@ jobs:
       - name: Set up Elixir
         uses: erlef/setup-beam@v1
         with:
-          elixir-version: '1.16'
-          otp-version: '26'
+          elixir-version: '1.20'
+          otp-version: '29'
 
       - name: Restore dependencies cache
         uses: actions/cache@v3
