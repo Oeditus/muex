@@ -63,14 +63,16 @@ defmodule Muex.Mutator do
   @typedoc """
   Represents a single mutation with its metadata.
 
-  The `:equivalent`, `:original_ast`, and `:original_line` keys are optional.
-  `walk/3` annotates mutations with `:original_ast` and `:original_line`.
+  The `:equivalent`, `:original_ast`, `:original_line`, and `:ast_path`
+  keys are optional. `walk/3` annotates mutations with `:original_ast`,
+  `:original_line`, and `:ast_path`.
   When `:equivalent` is `true`, the mutation is considered semantically equivalent
   to the original and will be filtered out by the optimizer.
   """
   @type mutation :: %{
           optional(:original_ast) => term(),
           optional(:original_line) => non_neg_integer(),
+          optional(:ast_path) => [non_neg_integer()],
           optional(:equivalent) => boolean(),
           ast: term(),
           mutator: module(),
@@ -208,35 +210,38 @@ defmodule Muex.Mutator do
   ## Returns
 
     List of all mutations found in the AST. Each mutation is augmented with
-    `:original_ast` (the matched node) and `:original_line` (that node's own
-    line), both used later during application.
+    `:original_ast` (the matched node), `:original_line` (that node's own
+    line) and `:ast_path` (that node's position in `ast`), all used
+    later during application.
   """
   @spec walk(ast :: term(), mutators :: [module()], context :: map()) :: [mutation()]
   def walk(ast, mutators, context) do
     context = Map.put_new(context, :line, 0)
     skip_calls = Map.get(context, :skip_calls, [])
-    collect(ast, mutators, context, skip_calls)
+    collect(ast, mutators, context, skip_calls, [])
   end
 
-  # Recursively collect mutations, threading the enclosing line and pruning
-  # skipped subtrees. Preserves `Macro.prewalk/2` (pre-order) ordering while
-  # adding context awareness.
-  defp collect(node, mutators, context, skip_calls) do
+  # Recursively collect mutations, threading the enclosing line and the node's
+  # position, and pruning skipped subtrees. Preserves `Macro.prewalk/2`
+  # (pre-order) ordering while adding context awareness. `path` is the
+  # position of `node`, the tuple and list indices leading to it from the root,
+  # kept reversed while descending.
+  defp collect(node, mutators, context, skip_calls, path) do
     if skip?(node, skip_calls) do
       []
     else
       context = update_line(context, node)
 
-      mutate_node(node, mutators, context) ++
-        collect_children(node, mutators, context, skip_calls)
+      mutate_node(node, mutators, context, path) ++
+        collect_children(node, mutators, context, skip_calls, path)
     end
   end
 
-  defp mutate_node(node, mutators, context) do
+  defp mutate_node(node, mutators, context, path) do
     Enum.flat_map(mutators, fn mutator ->
       node
       |> mutator.mutate(context)
-      |> Enum.map(&annotate(&1, node, context))
+      |> Enum.map(&annotate(&1, node, context, path))
     end)
   end
 
@@ -246,13 +251,20 @@ defmodule Muex.Mutator do
   # point it somewhere other than the matched node — StatementDeletion reports
   # the deleted statement's line while the node it replaces is the enclosing
   # block. `:original_line` is the matched node's own line (the enclosing line
-  # when the node carries no metadata of its own), which is what
-  # `Muex.Compiler` matches on.
-  defp annotate(mutation, node, context) do
+  # when the node carries no metadata of its own). `:ast_path` is where
+  # the node sits in the walked AST: the same code can appear twice on one
+  # line (`x + 1 + (x + 1)`), and only its position tells the copies apart.
+  # `Muex.Compiler` replaces the node at that position, and falls back to
+  # matching on `:original_line` when there is none.
+  defp annotate(mutation, node, context, path) do
     mutation
     |> Map.put(:original_ast, node)
     |> Map.put(:original_line, Map.get(context, :line) || 0)
+    |> Map.put(:ast_path, Enum.reverse(path))
   end
+
+  # The position `steps` below `path`, with `steps` written root first.
+  defp below(path, steps), do: Enum.reverse(steps, path)
 
   # Map/struct update: `%{subject | key: value}`, and the inner `%{}` of
   # `%Struct{subject | key: value}`. The `|` here is the update special form,
@@ -265,12 +277,13 @@ defmodule Muex.Mutator do
          {:%{}, _meta, [{:|, pipe_meta, [subject, pairs]}]},
          mutators,
          context,
-         skip_calls
+         skip_calls,
+         path
        ) do
     context = update_line(context, {:|, pipe_meta, []})
 
-    collect(subject, mutators, context, skip_calls) ++
-      collect_args(pairs, mutators, context, skip_calls)
+    collect(subject, mutators, context, skip_calls, below(path, [2, 0, 2, 0])) ++
+      collect_args(pairs, mutators, context, skip_calls, below(path, [2, 0, 2, 1]))
   end
 
   # Function capture: `&Mod.fun/arity` and `&fun/arity`. The `/` names the
@@ -283,60 +296,72 @@ defmodule Muex.Mutator do
          {:&, _meta, [{:/, _slash_meta, [function, arity]} = slash] = args},
          mutators,
          context,
-         skip_calls
+         skip_calls,
+         path
        )
        when is_integer(arity) do
     case function_reference?(function) do
       true ->
         context = update_line(context, slash)
 
-        collect(function, mutators, context, skip_calls) ++
-          collect(arity, mutators, context, skip_calls)
+        collect(function, mutators, context, skip_calls, below(path, [2, 0, 2, 0])) ++
+          collect(arity, mutators, context, skip_calls, below(path, [2, 0, 2, 1]))
 
       false ->
-        collect_args(args, mutators, context, skip_calls)
+        collect_args(args, mutators, context, skip_calls, below(path, [2]))
     end
   end
 
   # Call with an atom form: descend into args only. This mirrors
   # `Macro.traverse/4`, which does not visit the call name itself.
-  defp collect_children({form, _meta, args}, mutators, context, skip_calls)
+  defp collect_children({form, _meta, args}, mutators, context, skip_calls, path)
        when is_atom(form) do
-    collect_args(args, mutators, context, skip_calls)
+    collect_args(args, mutators, context, skip_calls, below(path, [2]))
   end
 
   # Call with a non-atom form (e.g. remote call `{:., _, _}`): descend into
   # both the form and the args.
-  defp collect_children({form, _meta, args}, mutators, context, skip_calls) do
-    collect(form, mutators, context, skip_calls) ++
-      collect_args(args, mutators, context, skip_calls)
+  defp collect_children({form, _meta, args}, mutators, context, skip_calls, path) do
+    collect(form, mutators, context, skip_calls, below(path, [0])) ++
+      collect_args(args, mutators, context, skip_calls, below(path, [2]))
   end
 
   # Two-element tuple: a keyword pair or literal pair. Never mutate an atom
   # key; always traverse the value.
-  defp collect_children({left, right}, mutators, context, skip_calls) do
+  defp collect_children({left, right}, mutators, context, skip_calls, path) do
     left_mutations =
-      if is_atom(left), do: [], else: collect(left, mutators, context, skip_calls)
+      if is_atom(left),
+        do: [],
+        else: collect(left, mutators, context, skip_calls, below(path, [0]))
 
-    left_mutations ++ collect(right, mutators, context, skip_calls)
+    left_mutations ++ collect(right, mutators, context, skip_calls, below(path, [1]))
   end
 
-  defp collect_children(list, mutators, context, skip_calls) when is_list(list) do
-    Enum.flat_map(list, &collect(&1, mutators, context, skip_calls))
+  defp collect_children(list, mutators, context, skip_calls, path) when is_list(list) do
+    collect_list(list, mutators, context, skip_calls, path)
   end
 
-  defp collect_children(_leaf, _mutators, _context, _skip_calls), do: []
+  defp collect_children(_leaf, _mutators, _context, _skip_calls, _path), do: []
 
   # Args may be a list (normal call) or an atom such as `nil`/`Elixir` for
-  # variables and zero-arity forms, which carry no child nodes.
-  defp collect_args(args, _mutators, _context, _skip_calls) when is_atom(args), do: []
+  # variables and zero-arity forms, which carry no child nodes. `path` is the
+  # position of `args` itself.
+  defp collect_args(args, _mutators, _context, _skip_calls, _path) when is_atom(args), do: []
 
-  defp collect_args(args, mutators, context, skip_calls) when is_list(args) do
-    Enum.flat_map(args, &collect(&1, mutators, context, skip_calls))
+  defp collect_args(args, mutators, context, skip_calls, path) when is_list(args) do
+    collect_list(args, mutators, context, skip_calls, path)
   end
 
-  defp collect_args(args, mutators, context, skip_calls) do
-    collect(args, mutators, context, skip_calls)
+  defp collect_args(args, mutators, context, skip_calls, path) do
+    collect(args, mutators, context, skip_calls, path)
+  end
+
+  defp collect_list(list, mutators, context, skip_calls, path) do
+    list
+    |> Enum.with_index()
+    |> Enum.flat_map(fn {node, index} ->
+      collect(node, mutators, context, skip_calls, below(path, [index]))
+    end)
   end
 
   # The left operand of `/` in `&(left / arity)` when Elixir reads the capture

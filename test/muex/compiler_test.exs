@@ -83,6 +83,173 @@ defmodule Muex.CompilerTest do
     end
   end
 
+  describe "apply via compile_to_source/3 - equal nodes on one line" do
+    # A mutation used to replace every node on its line that was structurally
+    # equal to the one it was generated from. In `x + 1 + (x + 1)` both inner
+    # `+ to -` mutants rewrote both copies: two identical mutants, and a report
+    # saying one `x + 1` became `x - 1` when both had.
+    setup do
+      entry = file_entry("defmodule Sample do\n  def f(x), do: x + 1 + (x + 1)\nend")
+      %{entry: entry}
+    end
+
+    defp body(mutation, entry) do
+      assert {:ok, source} = Compiler.compile_to_source(mutation, entry, ElixirLang)
+      source |> String.split("\n") |> Enum.at(2) |> String.trim()
+    end
+
+    test "mutating the left x + 1 leaves the right one unchanged", %{entry: entry} do
+      # walk/3 is pre-order: the outer `+`, then the left `x + 1`, then the right.
+      assert [_outer, left, _right] =
+               entry.ast
+               |> Mutator.walk([Arithmetic], %{file: entry.path})
+               |> Enum.filter(&(&1.description == "Arithmetic: + to -"))
+
+      assert body(left, entry) == "x - 1 + (x + 1)"
+    end
+
+    test "each + to - mutant rewrites exactly one +", %{entry: entry} do
+      bodies =
+        entry.ast
+        |> Mutator.walk([Arithmetic], %{file: entry.path})
+        |> Enum.filter(&(&1.description == "Arithmetic: + to -"))
+        |> Enum.map(&body(&1, entry))
+
+      # In walk order: the outer `+`, the left `x + 1`, the right `x + 1`.
+      assert bodies == ["x + 1 - (x + 1)", "x - 1 + (x + 1)", "x + 1 + (x - 1)"]
+    end
+
+    test "every mutant of the line is distinct", %{entry: entry} do
+      bodies =
+        entry.ast
+        |> Mutator.walk([Arithmetic], %{file: entry.path})
+        |> Enum.map(&body(&1, entry))
+
+      assert length(bodies) == 6
+      assert bodies == Enum.uniq(bodies)
+    end
+
+    test "the first element of a tuple is replaced alone" do
+      # `{x + 1, x + 1}` is a two-element tuple: the left `x + 1` is at index 0
+      # of a tuple, where the line match would rewrite both.
+      entry = file_entry("defmodule Sample do\n  def pair(x), do: {x + 1, x + 1}\nend")
+
+      assert [left, _right] =
+               entry.ast
+               |> Mutator.walk([Arithmetic], %{file: entry.path})
+               |> Enum.filter(&(&1.description == "Arithmetic: + to -"))
+
+      assert body(left, entry) == "{x - 1, x + 1}"
+    end
+
+    test "a bare literal is replaced at its own position", %{entry: entry} do
+      # Literals carry no metadata, so nothing but their position tells the
+      # two `1`s apart.
+      bodies =
+        entry.ast
+        |> Mutator.walk([Literal], %{file: entry.path})
+        |> Enum.filter(&(&1.original_ast == 1 and &1.ast == 2))
+        |> Enum.map(&body(&1, entry))
+
+      assert bodies == ["x + 2 + (x + 1)", "x + 1 + (x + 2)"]
+    end
+
+    test "a mutation built by hand, with no recorded position, still applies by line" do
+      entry = file_entry("defmodule Sample do\n  def f(x), do: x * 3\nend")
+
+      mutation = %{
+        original_ast: {:*, [line: 2], [{:x, [line: 2], nil}, 3]},
+        ast: {:/, [line: 2], [{:x, [line: 2], nil}, 3]},
+        mutator: Arithmetic,
+        description: "Arithmetic: * to /",
+        location: %{file: entry.path, line: 2}
+      }
+
+      assert body(mutation, entry) == "x / 3"
+    end
+
+    test "a position that does not lead to the node falls back to the line" do
+      # Generated from one AST and applied to another. In the second, the
+      # recorded position holds `y(x * 3)`, not `x * 3`, and a second
+      # definition means it leads nowhere at all. Neither is trusted: the node
+      # is found by its line as before.
+      generated_from = file_entry("defmodule Sample do\n  def f(x), do: x * 3\nend")
+
+      mutation =
+        generated_from.ast
+        |> Mutator.walk([Arithmetic], %{file: generated_from.path})
+        |> Enum.find(&(&1.description == "Arithmetic: * to /"))
+
+      wrapped = file_entry("defmodule Sample do\n  def f(x), do: y(x * 3)\nend")
+      assert body(mutation, wrapped) == "y(x / 3)"
+
+      moved = file_entry("defmodule Sample do\n  def f(x), do: x * 3\n  def g, do: :ok\nend")
+      assert body(mutation, moved) == "x / 3"
+    end
+
+    test "a position past the end of a tuple or a list falls back to the line" do
+      # `g(x * 3)` puts `x * 3` at index 2 of the body's call and index 0 of
+      # its args. With `{x * 3, 1}` as the body, the same position is index 2
+      # of a two-element tuple; with `g()`, index 0 of an empty list.
+      generated_from = file_entry("defmodule Sample do\n  def f(x), do: g(x * 3)\nend")
+
+      mutation =
+        generated_from.ast
+        |> Mutator.walk([Arithmetic], %{file: generated_from.path})
+        |> Enum.find(&(&1.description == "Arithmetic: * to /"))
+
+      pair = file_entry("defmodule Sample do\n  def f(x), do: {x * 3, 1}\nend")
+      assert body(mutation, pair) == "{x / 3, 1}"
+
+      empty = file_entry("defmodule Sample do\n  def f(x) when x * 3 > 0, do: g()\nend")
+      assert {:ok, source} = Compiler.compile_to_source(mutation, empty, ElixirLang)
+      assert source =~ "when x / 3 > 0"
+    end
+
+    test "a negative index in a tuple falls back to the line" do
+      # `elem/2` refuses a negative index, so the position used to raise.
+      entry = file_entry("defmodule Sample do\n  def f(x), do: g(x * 3)\nend")
+
+      mutation =
+        entry.ast
+        |> Mutator.walk([Arithmetic], %{file: entry.path})
+        |> Enum.find(&(&1.description == "Arithmetic: * to /"))
+        # The step into the call's args (index 2 of its tuple), made negative.
+        |> Map.update!(:ast_path, &List.replace_at(&1, -2, -1))
+
+      assert body(mutation, entry) == "g(x / 3)"
+    end
+
+    test "a non-integer index in a tuple falls back to the line" do
+      # `walk/3` records integers only, but a position built by hand may not:
+      # `elem/2` refuses `2.0`, so it must not be tried.
+      entry = file_entry("defmodule Sample do\n  def f(x), do: g(x * 3)\nend")
+
+      mutation =
+        entry.ast
+        |> Mutator.walk([Arithmetic], %{file: entry.path})
+        |> Enum.find(&(&1.description == "Arithmetic: * to /"))
+        |> Map.update!(:ast_path, &List.replace_at(&1, -2, 2.0))
+
+      assert body(mutation, entry) == "g(x / 3)"
+    end
+
+    test "a negative index in a list falls back to the line" do
+      # `Enum.fetch/2` counts a negative index from the end, so the position
+      # used to lead to the last `x * 3` and rewrite only that one.
+      entry = file_entry("defmodule Sample do\n  def f(x), do: g(x * 3, x * 3)\nend")
+
+      mutation =
+        entry.ast
+        |> Mutator.walk([Arithmetic], %{file: entry.path})
+        |> Enum.find(&(&1.description == "Arithmetic: * to /"))
+        # The step to the first argument (index 0 of the args), made negative.
+        |> Map.update!(:ast_path, &List.replace_at(&1, -1, -1))
+
+      assert body(mutation, entry) == "g(x / 3, x / 3)"
+    end
+  end
+
   describe "apply via compile_to_source/3 - statement deletion" do
     # StatementDeletion replaces the enclosing `__block__` but reports the
     # deleted statement's line, so the reported line and the line identifying

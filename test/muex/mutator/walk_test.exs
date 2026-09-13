@@ -39,6 +39,11 @@ defmodule Muex.Mutator.WalkTest do
 
   defp ast!(source), do: Code.string_to_quoted!(source)
 
+  # The node at `path`: tuple and list indices, from the root.
+  defp follow(node, []), do: node
+  defp follow(tuple, [index | rest]) when is_tuple(tuple), do: follow(elem(tuple, index), rest)
+  defp follow(list, [index | rest]) when is_list(list), do: follow(Enum.at(list, index), rest)
+
   describe "line propagation" do
     test "leaf literals inherit the nearest enclosing line" do
       ast =
@@ -258,6 +263,39 @@ defmodule Muex.Mutator.WalkTest do
 
       assert Enum.all?(mutations, &Map.has_key?(&1, :original_ast))
       assert Enum.any?(mutations, &match?({:+, _meta, _args}, &1.original_ast))
+    end
+
+    test "every mutation's ast_path leads to its original_ast" do
+      # Muex.Compiler replaces the node at `:ast_path` and falls back to
+      # matching on the line when the position is wrong, so a wrong position
+      # would not fail loudly: the mutant would quietly rewrite every equal
+      # node on its line again. This source goes through every clause of the
+      # walk: map and struct updates, captures, remote calls, keyword and
+      # literal pairs, lists, attributes and blocks.
+      ast =
+        ast!("""
+        defmodule Sample do
+          @limit 10
+          def run(s, xs) do
+            s = %{hd([s]) | count: s.count + 1, seen: [1, 2 + 3]}
+            t = %Sample.State{s | total: {s.count * 2, :ok}}
+            ys = Enum.map(xs, &Path.dirname/1) ++ Enum.map(xs, &(&1 / 2))
+            case Map.get(t, :total, 1 - 1) do
+              {n, :ok} when n > @limit -> [x: n + 1 + (n + 1)]
+              _ -> ys |> Enum.reverse() |> hd()
+            end
+          end
+        end
+        """)
+
+      mutations = Mutator.walk(ast, Muex.Config.all_mutators(), %{file: "s.ex"})
+
+      assert length(mutations) > 50
+
+      for mutation <- mutations do
+        assert follow(ast, mutation.ast_path) == mutation.original_ast,
+               "#{mutation.description} at #{inspect(mutation.ast_path)}"
+      end
     end
 
     test "remote call arguments are still traversed" do
