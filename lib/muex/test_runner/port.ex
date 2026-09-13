@@ -238,20 +238,14 @@ defmodule Muex.TestRunner.Port do
   # way. Reading that as a clean pass, or as "nothing ran", would hide a mutant
   # that broke the test setup.
   defp count_failures(output, exit_code) do
-    counted =
-      sum_matches(@pre_120_failures_pattern, output) ||
-        sum_matches(@post_120_failures_pattern, output)
-
-    cond do
-      is_integer(counted) and counted > 0 -> counted
-      exit_code != 0 -> 1
-      true -> 0
-    end
+    with 0 <- sum_matches(@pre_120_failures_pattern, output),
+         0 <- sum_matches(@post_120_failures_pattern, output),
+         do: Enum.min([exit_code, 1])
   end
 
   defp sum_matches(pattern, output) do
     case Regex.scan(pattern, output, capture: :all_but_first) do
-      [] -> nil
+      [] -> 0
       matches -> matches |> List.flatten() |> Enum.map(&String.to_integer/1) |> Enum.sum()
     end
   end

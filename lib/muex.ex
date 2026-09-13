@@ -139,10 +139,10 @@ defmodule Muex do
 
         all_mutations = candidates |> maybe_optimize(config) |> maybe_cap(config)
 
-        cond do
-          all_mutations != [] -> run_mutations(config, files, all_mutations, equivalent_results)
-          equivalent_results != [] -> report_unscored(equivalent_results, config)
-          true -> {:ok, %{results: [], score_low: 0.0, score_high: 0.0}}
+        case {all_mutations, equivalent_results} do
+          {[_ | _], _} -> run_mutations(config, files, all_mutations, equivalent_results)
+          {[], [_ | _]} -> report_unscored(equivalent_results, config)
+          {[], []} -> {:ok, %{results: [], score_low: 0.0, score_high: 0.0}}
         end
     end
   end
