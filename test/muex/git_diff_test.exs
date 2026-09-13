@@ -127,7 +127,27 @@ defmodule Muex.GitDiffTest do
       File.write!(file, "one\nCHANGED\nthree\n")
       git!(["commit", "-q", "-am", "change line 2"], dir)
 
-      assert GitDiff.changed_since("HEAD~1", cd: dir) == {:ok, %{"calc.ex" => MapSet.new([2])}}
+      assert GitDiff.changed_since("HEAD~1", cd: dir) ==
+               {:ok, %{Path.join(dir, "calc.ex") => MapSet.new([2])}}
+    end
+
+    # A project that is not at the top of its repository, like an umbrella kept
+    # in a subdirectory of a monorepo. Git names changed files from the top, and
+    # without --relative this key would come out as <project>/project/lib/calc.ex.
+    test "names files from :cd when the project is in a subdirectory", %{dir: dir} do
+      project = Path.join(dir, "project")
+      File.mkdir_p!(Path.join(project, "lib"))
+      File.write!(Path.join(project, "lib/calc.ex"), "one\ntwo\n")
+      File.write!(Path.join(dir, "outside.ex"), "x\n")
+      git!(["add", "."], dir)
+      git!(["commit", "-q", "-m", "init"], dir)
+
+      File.write!(Path.join(project, "lib/calc.ex"), "one\nCHANGED\n")
+      File.write!(Path.join(dir, "outside.ex"), "y\n")
+      git!(["commit", "-q", "-am", "change both"], dir)
+
+      assert GitDiff.changed_since("HEAD~1", cd: project) ==
+               {:ok, %{Path.join(project, "lib/calc.ex") => MapSet.new([2])}}
     end
 
     test "records every line of a newly added file", %{dir: dir} do
@@ -140,7 +160,7 @@ defmodule Muex.GitDiffTest do
       git!(["commit", "-q", "-m", "add file"], dir)
 
       assert {:ok, changed} = GitDiff.changed_since("HEAD~1", cd: dir)
-      assert changed == %{"added.ex" => MapSet.new([1, 2])}
+      assert changed == %{Path.join(dir, "added.ex") => MapSet.new([1, 2])}
     end
 
     test "returns an error for an unknown ref", %{dir: dir} do
@@ -154,8 +174,13 @@ defmodule Muex.GitDiffTest do
   end
 
   describe "filter_mutations/2" do
+    # Keys are absolute, as changed_since/2 returns them; locations are relative,
+    # as files loaded from a relative --files path carry them.
     setup do
-      changed = %{"lib/a.ex" => MapSet.new([10, 11]), "lib/b.ex" => MapSet.new([5])}
+      changed = %{
+        Path.expand("lib/a.ex") => MapSet.new([10, 11]),
+        Path.expand("lib/b.ex") => MapSet.new([5])
+      }
 
       mutations = [
         %{location: %{file: "lib/a.ex", line: 10}},
@@ -174,6 +199,12 @@ defmodule Muex.GitDiffTest do
                %{location: %{file: "lib/a.ex", line: 10}},
                %{location: %{file: "lib/b.ex", line: 5}}
              ]
+    end
+
+    test "matches a mutation whose location is an absolute path", ctx do
+      mutation = %{location: %{file: Path.expand("lib/b.ex"), line: 5}}
+
+      assert GitDiff.filter_mutations([mutation], ctx.changed) == [mutation]
     end
 
     test "returns all mutations unchanged when given nil (no --since)", ctx do

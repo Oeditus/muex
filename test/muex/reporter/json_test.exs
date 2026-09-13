@@ -88,6 +88,24 @@ defmodule Muex.Reporter.JsonTest do
       assert decoded["patch"] == nil
     end
 
+    test "includes the test files each mutant was run against" do
+      results = [
+        %{
+          result: :survived,
+          mutation: test_mutation("lib/test.ex", 3),
+          duration_ms: 0,
+          error: nil,
+          test_files: ["test/test_test.exs"]
+        },
+        %{result: :invalid, mutation: test_mutation("lib/test.ex", 4), duration_ms: 0, error: nil}
+      ]
+
+      report = results |> Json.to_json() |> Jason.decode!()
+
+      assert [%{"test_files" => ["test/test_test.exs"]}, %{"test_files" => []}] =
+               report["mutations"]
+    end
+
     test "handles error information" do
       results = [
         %{

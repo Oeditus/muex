@@ -49,6 +49,9 @@ defmodule Muex.Config do
     * `--timeout` - Test timeout in milliseconds (default: 10000)
     * `--fail-at` - Minimum mutation score percentage to pass (default: 80)
     * `--format` - Output format: `terminal`, `json`, `html` (default: `terminal`)
+    * `--output` - Write the `json` or `html` report to this file and print a
+      one-line summary instead. Requires `--format json` or `--format html`.
+      Without it, `json` prints to stdout and `html` writes `muex-report.html`.
     * `--min-score` - Minimum file complexity score for inclusion (default: 20)
     * `--max-mutations` - Cap total mutations tested; 0 = unlimited (default: 0)
     * `--no-filter` - Disable intelligent file filtering
@@ -98,6 +101,7 @@ defmodule Muex.Config do
           timeout_ms: pos_integer(),
           fail_at: number(),
           format: String.t(),
+          output: Path.t() | nil,
           min_score: non_neg_integer(),
           max_mutations: non_neg_integer(),
           filter: boolean(),
@@ -125,6 +129,7 @@ defmodule Muex.Config do
     timeout_ms: 10_000,
     fail_at: 80,
     format: "terminal",
+    output: nil,
     min_score: 20,
     max_mutations: 0,
     filter: true,
@@ -153,6 +158,7 @@ defmodule Muex.Config do
                timeout: :integer,
                fail_at: :integer,
                format: :string,
+               output: :string,
                min_score: :integer,
                max_mutations: :integer,
                no_filter: :boolean,
@@ -188,13 +194,16 @@ defmodule Muex.Config do
 
     files = resolve_files(opts, app)
     project_root = resolve_project_root(Keyword.get(opts, :project_root), files)
+    format = Keyword.get(opts, :format, "terminal")
 
     with {:ok, language} <- resolve_language(Keyword.get(opts, :language, "elixir")),
          {:ok, preset} <- validate_preset(Keyword.get(opts, :preset, "none")),
          {:ok, mutators} <-
            resolve_mutators(Keyword.get(opts, :mutators), extra_paths, language, preset),
          {:ok, optimize_level} <-
-           validate_optimize_level(Keyword.get(opts, :optimize_level, "balanced")) do
+           validate_optimize_level(Keyword.get(opts, :optimize_level, "balanced")),
+         {:ok, format} <- validate_format(format),
+         {:ok, output} <- validate_output(Keyword.get(opts, :output), format) do
       config = %__MODULE__{
         files: files,
         test_paths: resolve_test_paths(opts, app),
@@ -205,7 +214,8 @@ defmodule Muex.Config do
         concurrency: Keyword.get(opts, :concurrency, System.schedulers_online()),
         timeout_ms: Keyword.get(opts, :timeout, 10_000),
         fail_at: Keyword.get(opts, :fail_at, 80),
-        format: Keyword.get(opts, :format, "terminal"),
+        format: format,
+        output: output,
         min_score: Keyword.get(opts, :min_score, 20),
         max_mutations: Keyword.get(opts, :max_mutations, 0),
         filter: not Keyword.get(opts, :no_filter, false),
@@ -441,6 +451,21 @@ defmodule Muex.Config do
 
   defp validate_optimize_level(other) do
     {:error, "Unknown optimization level: #{other}. Use conservative, balanced, or aggressive"}
+  end
+
+  defp validate_format(format) when format in ~w(terminal json html), do: {:ok, format}
+
+  defp validate_format(other) do
+    {:error, "Unknown format: #{other}. Use terminal, json, or html"}
+  end
+
+  defp validate_output(nil, _format), do: {:ok, nil}
+  defp validate_output("", _format), do: {:error, "--output needs a file path"}
+
+  defp validate_output(path, format) when format in ~w(json html), do: {:ok, path}
+
+  defp validate_output(_path, format) do
+    {:error, "--output needs --format json or --format html, not #{format}"}
   end
 
   # DSL call names pruned during traversal for each framework preset. These

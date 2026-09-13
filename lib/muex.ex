@@ -80,18 +80,37 @@ defmodule Muex do
   """
   @spec run(Muex.Config.t()) :: {:ok, map()} | {:error, String.t()}
   def run(%Muex.Config{} = config) do
-    log("Loading files from #{Enum.join(config.files, ", ")}...", config.verbose)
+    with :ok <- check_output(config.output) do
+      log("Loading files from #{Enum.join(config.files, ", ")}...", config.verbose)
 
-    case Muex.Loader.load_all(config.files, config.language) do
-      {:ok, []} ->
-        {:ok, %{results: [], score_low: 0.0, score_high: 0.0}}
+      case Muex.Loader.load_all(config.files, config.language) do
+        {:ok, []} ->
+          {:ok, %{results: [], score_low: 0.0, score_high: 0.0}}
 
-      {:ok, [_ | _] = all_files} ->
-        # Normalize file paths to be relative to the project root so that
-        # downstream code (sandbox, PortRunner) can join them correctly.
-        all_files = relativize_file_entries(all_files, config.project_root)
-        log("Found #{length(all_files)} file(s)", config.verbose)
-        do_run(config, all_files)
+        {:ok, [_ | _] = all_files} ->
+          # Normalize file paths to be relative to the project root so that
+          # downstream code (sandbox, PortRunner) can join them correctly.
+          all_files = relativize_file_entries(all_files, config.project_root)
+          log("Found #{length(all_files)} file(s)", config.verbose)
+          do_run(config, all_files)
+      end
+    end
+  end
+
+  # An unwritable --output path is refused before any mutant runs, not after the
+  # whole run has been spent. The probe creates the file only to prove it can,
+  # and removes it again unless it was already there.
+  defp check_output(nil), do: :ok
+
+  defp check_output(path) do
+    existed? = File.exists?(path)
+
+    with :ok <- File.mkdir_p(Path.dirname(path)),
+         :ok <- File.write(path, "", [:append]) do
+      if not existed?, do: File.rm(path)
+      :ok
+    else
+      {:error, reason} -> {:error, report_error(path, reason)}
     end
   end
 
@@ -144,10 +163,11 @@ defmodule Muex do
   end
 
   # Restrict the file set to those touched by the --since diff (nil = no scoping).
+  # The diff names files by absolute path; a loaded file's path may be relative.
   defp scope_to_changed_files(files, nil), do: files
 
   defp scope_to_changed_files(files, changed),
-    do: Enum.filter(files, &Map.has_key?(changed, &1.path))
+    do: Enum.filter(files, &Map.has_key?(changed, Path.expand(&1.path)))
 
   defp maybe_filter(files, %Muex.Config{filter: false} = config) do
     log("Skipping file filtering", config.verbose)
@@ -284,7 +304,7 @@ defmodule Muex do
   defp report({:error, _reason} = err, _config), do: err
 
   defp report(results, config) do
-    case output_report(results, config.format, config.verbose) do
+    case output_report(results, config) do
       {:error, _} = err -> err
       _ -> build_result(results)
     end
@@ -313,21 +333,46 @@ defmodule Muex do
     {:ok, %{results: results, score_low: score_low, score_high: score_high}}
   end
 
-  defp output_report(results, "json", _verbose) do
+  defp output_report(results, %Muex.Config{format: "json", output: nil}) do
     log(JsonReporter.to_json(results))
   end
 
-  defp output_report(results, "html", verbose) do
-    HtmlReporter.generate(results)
-    log("HTML report generated: muex-report.html", verbose)
+  defp output_report(results, %Muex.Config{format: "json", output: path}) do
+    write_report(results, JsonReporter, path)
   end
 
-  defp output_report(results, "terminal", _verbose) do
+  defp output_report(results, %Muex.Config{format: "html", output: nil, verbose: verbose}) do
+    case HtmlReporter.generate(results) do
+      :ok -> log("HTML report generated: muex-report.html", verbose)
+      {:error, reason} -> {:error, report_error("muex-report.html", reason)}
+    end
+  end
+
+  defp output_report(results, %Muex.Config{format: "html", output: path}) do
+    write_report(results, HtmlReporter, path)
+  end
+
+  defp output_report(results, %Muex.Config{format: "terminal"}) do
     Muex.Reporter.print_summary(results)
   end
 
-  defp output_report(_results, other, _verbose) do
+  defp output_report(_results, %Muex.Config{format: other}) do
     {:error, "Unknown format: #{other}. Use terminal, json, or html"}
+  end
+
+  # With --output the report goes to the file and the terminal gets one line, so
+  # a long run's results are read from the file rather than scrolled past.
+  defp write_report(results, reporter, path) do
+    with :ok <- File.mkdir_p(Path.dirname(path)),
+         :ok <- reporter.generate(results, output_file: path) do
+      log("#{Muex.Reporter.summary_line(results)}. Report: #{path}")
+    else
+      {:error, reason} -> {:error, report_error(path, reason)}
+    end
+  end
+
+  defp report_error(path, reason) do
+    "Could not write the report to #{path}: #{:file.format_error(reason)}"
   end
 
   # Convert relative paths to absolute, anchored at `root`.

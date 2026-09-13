@@ -104,11 +104,75 @@ defmodule Muex.ReporterTest do
       assert output =~ "+ a - b"
     end
 
+    test "names the test files a survivor ran" do
+      results = [
+        %{
+          result: :survived,
+          mutation: test_mutation(),
+          test_files: ["test/calc_test.exs", "test/other_test.exs"]
+        }
+      ]
+
+      output = capture_io(fn -> Reporter.print_summary(results) end)
+
+      assert output =~ "Test files: test/calc_test.exs, test/other_test.exs"
+    end
+
+    test "prints no test-files line when none are recorded" do
+      results = [%{result: :survived, mutation: test_mutation()}]
+
+      output = capture_io(fn -> Reporter.print_summary(results) end)
+
+      refute output =~ "Test files:"
+    end
+
     test "handles empty results" do
       output = capture_io(fn -> Reporter.print_summary([]) end)
 
       assert output =~ "Total mutants:\e[0m 0"
       assert output =~ "Mutation Score: \e[31m0.0%\e[0m"
+    end
+  end
+
+  describe "summary_line/1" do
+    test "gives the score and the scored counts on one line" do
+      results = [
+        %{result: :killed, mutation: test_mutation()},
+        %{result: :killed, mutation: test_mutation()},
+        %{result: :killed, mutation: test_mutation()},
+        %{result: :survived, mutation: test_mutation()},
+        %{result: :invalid, mutation: test_mutation()}
+      ]
+
+      assert Reporter.summary_line(results) ==
+               "Mutation Score: 75.0% (5 mutants: 3 killed, 1 survived, 1 invalid, 0 timed out)"
+    end
+
+    test "counts equivalent and no-coverage mutants only when there are any" do
+      results = [
+        %{result: :killed, mutation: test_mutation()},
+        %{result: :equivalent, mutation: test_mutation()},
+        %{result: :no_coverage, mutation: test_mutation()},
+        %{result: :no_coverage, mutation: test_mutation()}
+      ]
+
+      assert Reporter.summary_line(results) ==
+               "Mutation Score: 100.0% (4 mutants: 1 killed, 0 survived, 0 invalid, 0 timed out, " <>
+                 "1 equivalent, 2 no coverage)"
+    end
+
+    test "shows a range when timeouts make the score uncertain" do
+      results = [
+        %{result: :killed, mutation: test_mutation()},
+        %{result: :timeout, mutation: test_mutation()}
+      ]
+
+      assert Reporter.summary_line(results) =~ "Mutation Score: 50.0%..100.0%"
+    end
+
+    test "handles empty results" do
+      assert Reporter.summary_line([]) ==
+               "Mutation Score: 0.0% (0 mutants: 0 killed, 0 survived, 0 invalid, 0 timed out)"
     end
   end
 

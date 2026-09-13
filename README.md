@@ -371,14 +371,14 @@ Mutation Score: 80.0%
 Structured JSON for CI/CD integration:
 ```bash
 mix muex --format json
-# Outputs: muex-report.json
+# Prints the report to stdout; add --output muex-report.json to write a file
 ```
 
 ### HTML Format
 Interactive HTML report with color-coded results:
 ```bash
 mix muex --format html
-# Outputs: muex-report.html
+# Outputs: muex-report.html (or the file given to --output)
 ```
 
 ## Examples

@@ -417,7 +417,8 @@ defmodule Muex.WorkerPool do
           mutation: mutation,
           result: :invalid,
           duration_ms: 0,
-          error: {:worker_crashed, reason}
+          error: {:worker_crashed, reason},
+          test_files: []
         }
 
         new_active = Map.delete(state.active_workers, worker_ref)
@@ -563,39 +564,42 @@ defmodule Muex.WorkerPool do
   # -- Worker execution --
 
   defp run_mutation_worker(mutation, file_path, sandbox, state) do
-    timeout_ms = Keyword.get(state.opts, :timeout_ms, 5000)
+    timeout_ms = Keyword.get(state.opts, :timeout_ms, 5_000)
     start_time = System.monotonic_time(:millisecond)
 
     file_entry = Map.fetch!(state.file_entries, file_path)
     tce_enabled = Keyword.get(state.opts, :tce, true)
 
-    result =
+    {result, judged_by} =
       case select_tests(mutation, state) do
         # Coverage-guided: no test exercises this line, so nothing can kill it.
         :no_coverage ->
-          :no_coverage
+          {:no_coverage, []}
 
         {:run, test_files} ->
-          case Compiler.compile_to_source(mutation, file_entry, state.language_adapter) do
-            {:ok, mutated_source} ->
-              if tce_enabled and Tce.equivalent_source?(file_entry.ast, mutated_source) do
-                # Provably equivalent: no test can ever kill it, so skip the
-                # (expensive) `mix test` subprocess entirely.
-                :equivalent
-              else
-                run_in_sandbox(
-                  sandbox,
-                  file_path,
-                  mutated_source,
-                  file_entry,
-                  test_files,
-                  timeout_ms
-                )
-              end
+          outcome =
+            case Compiler.compile_to_source(mutation, file_entry, state.language_adapter) do
+              {:ok, mutated_source} ->
+                if tce_enabled and Tce.equivalent_source?(file_entry.ast, mutated_source) do
+                  # Provably equivalent: no test can ever kill it, so skip the
+                  # (expensive) `mix test` subprocess entirely.
+                  :equivalent
+                else
+                  run_in_sandbox(
+                    sandbox,
+                    file_path,
+                    mutated_source,
+                    file_entry,
+                    test_files,
+                    timeout_ms
+                  )
+                end
 
-            {:error, reason} ->
-              {:invalid, reason}
-          end
+              {:error, reason} ->
+                {:invalid, reason}
+            end
+
+          {outcome, judged_by(outcome, test_files)}
       end
 
     duration_ms = System.monotonic_time(:millisecond) - start_time
@@ -607,12 +611,28 @@ defmodule Muex.WorkerPool do
         other -> {other, nil}
       end
 
-    %{mutation: mutation, result: result_type, duration_ms: duration_ms, error: error}
+    %{
+      mutation: mutation,
+      result: result_type,
+      duration_ms: duration_ms,
+      error: error,
+      test_files: judged_by
+    }
   rescue
-    e -> %{mutation: mutation, result: :timeout, duration_ms: 0, error: e}
+    e -> %{mutation: mutation, result: :timeout, duration_ms: 0, error: e, test_files: []}
   catch
-    :exit, reason -> %{mutation: mutation, result: :timeout, duration_ms: 0, error: reason}
+    :exit, reason ->
+      %{mutation: mutation, result: :timeout, duration_ms: 0, error: reason, test_files: []}
   end
+
+  # The test files `mix test` was given for a mutant. For a survivor every one of
+  # them ran and passed, which is where to look for a missing or too-weak
+  # assertion. A kill stops at the first failure (`--max-failures 1`), so later
+  # files may not have run. Empty when the mutant was not judged by tests: it did
+  # not compile or apply, was provably equivalent, or `mix test` gave no result.
+  defp judged_by({:invalid, _reason}, _test_files), do: []
+  defp judged_by(:equivalent, _test_files), do: []
+  defp judged_by(_outcome, test_files), do: test_files
 
   # Picks the test files to run for a mutation. With coverage guidance, runs
   # only the tests that execute the mutated line (or :no_coverage if none);
