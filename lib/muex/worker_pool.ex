@@ -322,6 +322,18 @@ defmodule Muex.WorkerPool do
     elapsed = System.monotonic_time(:millisecond) - started
 
     case result do
+      # Green, but only because nothing ran: every mutant would come back
+      # no_coverage, so say why now instead of after the whole run.
+      {:ok, %{failures: 0, tests_run: 0, output: output}} ->
+        raise Sandbox.Error, """
+        muex: the tests chosen to judge these mutants ran 0 tests with NO mutation
+        applied: every one was excluded, skipped or invalid. Nothing was scored.
+        Check the tags your test_helper.exs excludes and the environment those
+        tests need.
+        Test files: #{Enum.join(test_files, " ")}
+        #{summary_lines(output)}
+        """
+
       {:ok, %{failures: 0}} ->
         # stderr, so `--format json` output stays parseable.
         IO.puts(
@@ -604,12 +616,7 @@ defmodule Muex.WorkerPool do
 
     duration_ms = System.monotonic_time(:millisecond) - start_time
 
-    {result_type, error} =
-      case result do
-        {:invalid, err} -> {:invalid, err}
-        {:killed, killed_by} -> {:killed, killed_by}
-        other -> {other, nil}
-      end
+    {result_type, error} = status_and_error(result)
 
     %{
       mutation: mutation,
@@ -619,10 +626,32 @@ defmodule Muex.WorkerPool do
       test_files: judged_by
     }
   rescue
-    e -> %{mutation: mutation, result: :timeout, duration_ms: 0, error: e, test_files: []}
+    e -> crashed(mutation, Exception.format_banner(:error, e, __STACKTRACE__))
   catch
-    :exit, reason ->
-      %{mutation: mutation, result: :timeout, duration_ms: 0, error: reason, test_files: []}
+    :exit, reason -> crashed(mutation, Exception.format_banner(:exit, reason))
+  end
+
+  # The status a result is reported with, and the text its report shows.
+  defp status_and_error({:invalid, err}), do: {:invalid, err}
+  defp status_and_error({:killed, killed_by}), do: {:killed, killed_by}
+  defp status_and_error({:no_coverage, reason}), do: {:no_coverage, reason}
+
+  defp status_and_error(:equivalent),
+    do: {:equivalent, "compiles to the same bytecode as the original (TCE)"}
+
+  defp status_and_error(other), do: {other, nil}
+
+  # A crash inside muex is not a verdict on the tests. Recording it as a timeout
+  # let the high score bound count it as killed; as invalid it is left out of
+  # the score and its error is printed.
+  defp crashed(mutation, banner) do
+    %{
+      mutation: mutation,
+      result: :invalid,
+      duration_ms: 0,
+      error: "muex crashed while running this mutant: " <> banner,
+      test_files: []
+    }
   end
 
   # The test files `mix test` was given for a mutant. For a survivor every one of
@@ -695,6 +724,13 @@ defmodule Muex.WorkerPool do
     end
   end
 
+  # Every chosen test was excluded, skipped or invalid: `mix test` exits 0 with
+  # "Result: 0 tests, N excluded", but nothing ran against the mutant, so it did
+  # not survive anything. An `:integration` tag the environment leaves off is the
+  # usual cause, and it used to report every mutant survived.
+  defp classify_test_result({:ok, %{failures: 0, tests_run: 0, output: output}}),
+    do: {:no_coverage, "0 tests ran: " <> summary_lines(output)}
+
   defp classify_test_result({:ok, %{failures: 0}}), do: :survived
 
   # Without the output a kill carries no evidence, and a test failing for its
@@ -706,6 +742,17 @@ defmodule Muex.WorkerPool do
 
   defp classify_test_result({:error, :timeout}), do: :timeout
   defp classify_test_result({:error, reason}), do: {:invalid, reason}
+
+  # The summary lines ExUnit printed (one per app in an umbrella), joined, for a
+  # message that says why nothing ran. Both formatter generations: "Result: ..."
+  # from Elixir 1.20, "N tests, M failures, ..." before it.
+  defp summary_lines(output) do
+    output
+    |> String.split("\n")
+    |> Enum.map(&String.trim/1)
+    |> Enum.filter(&Regex.match?(~r/^(Result: |(\d+ \w+, )*\d+ failures?\b)/, &1))
+    |> Enum.join("; ")
+  end
 
   @failure_block_lines 12
 

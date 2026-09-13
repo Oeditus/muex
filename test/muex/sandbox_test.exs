@@ -156,9 +156,10 @@ defmodule Muex.SandboxTest do
       # Apply mutation
       {:ok, _precompiled} = Sandbox.apply_mutation(sandbox, target_file, "# mutated content", nil)
 
-      # After: should be a real file with mutated content
+      # After: should be a real file with mutated content (padded with trailing
+      # newlines, see "apply_mutation/4 file sizes")
       assert {:error, _} = File.read_link(sandbox_path)
-      assert File.read!(sandbox_path) == "# mutated content"
+      assert String.trim_trailing(File.read!(sandbox_path), "\n") == "# mutated content"
 
       # Original file should be untouched
       original = File.read!(Path.join(@project_root, target_file))
@@ -170,7 +171,7 @@ defmodule Muex.SandboxTest do
       sandbox_path = Path.join(sandbox.root, target_file)
 
       {:ok, _precompiled} = Sandbox.apply_mutation(sandbox, target_file, "# mutated", nil)
-      assert File.read!(sandbox_path) == "# mutated"
+      assert String.trim_trailing(File.read!(sandbox_path), "\n") == "# mutated"
 
       :ok = Sandbox.restore(sandbox, target_file)
 
@@ -235,7 +236,7 @@ defmodule Muex.SandboxTest do
 
       # Sandbox 1 should have mutated content
       sb1_path = Path.join(sb1.root, target_file)
-      assert File.read!(sb1_path) == "# sandbox 1 mutation"
+      assert String.trim_trailing(File.read!(sb1_path), "\n") == "# sandbox 1 mutation"
 
       # Restore sandbox 1
       :ok = Sandbox.restore(sb1, target_file)
@@ -266,6 +267,47 @@ defmodule Muex.SandboxTest do
 
     test "accepts any target in a plain project", %{tmp_dir: tmp_dir} do
       assert :ok = Sandbox.check_targets!(tmp_dir, ["lib/foo.ex"])
+    end
+  end
+
+  # Mix treats a source as unchanged when its size matches the last compile and
+  # its mtime (whole seconds) does too, or on Elixir < 1.20 is not newer. Two
+  # same-size mutants written in one second were never recompiled, so every test
+  # failed on the module whose .beam was deleted, and the mutant was scored
+  # killed untested.
+  describe "apply_mutation/4 file sizes" do
+    @describetag :tmp_dir
+
+    test "every write gets a size no compile has recorded", %{tmp_dir: tmp_dir} do
+      original = "defmodule Foo do\n  def a, do: 1 + 2\nend\n"
+      project_root = Path.join(tmp_dir, "project")
+      File.mkdir_p!(Path.join(project_root, "lib"))
+      File.write!(Path.join(project_root, "mix.exs"), "# fake mix.exs")
+      File.write!(Path.join(project_root, "lib/foo.ex"), original)
+
+      sandbox = Sandbox.create_sandbox(Path.join(tmp_dir, "sandbox"), project_root, "test", [])
+      written = Path.join(sandbox.root, "lib/foo.ex")
+
+      # Same byte size as each other and as the original: the case Mix could not
+      # tell apart.
+      sizes =
+        for mutant <- [
+              "defmodule Foo do\n  def a, do: 1 - 2\nend\n",
+              "defmodule Foo do\n  def a, do: 1 * 2\nend\n"
+            ] do
+          assert {:ok, _} = Sandbox.apply_mutation(sandbox, "lib/foo.ex", mutant, nil)
+          contents = File.read!(written)
+          # Only trailing newlines were added: no code, no line moved.
+          assert String.trim_trailing(contents, "\n") == String.trim_trailing(mutant, "\n")
+          :ok = Sandbox.restore(sandbox, "lib/foo.ex")
+          byte_size(contents)
+        end
+
+      assert [first, second] = sizes
+      assert first != second
+      assert first != byte_size(original) and second != byte_size(original)
+      # The real project was not touched.
+      assert File.read!(Path.join(project_root, "lib/foo.ex")) == original
     end
   end
 

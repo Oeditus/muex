@@ -31,6 +31,8 @@ defmodule Muex.Reporter.JsonTest do
       assert summary["survived"] == 1
       assert summary["invalid"] == 0
       assert summary["timeout"] == 0
+      assert summary["equivalent"] == 0
+      assert summary["no_coverage"] == 0
       assert summary["mutation_score_low"] == 50.0
       assert summary["mutation_score_high"] == 50.0
       assert length(mutations) == 2

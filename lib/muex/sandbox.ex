@@ -336,7 +336,7 @@ defmodule Muex.Sandbox do
     # Remove the symlink and write the mutated source as a real file
     File.rm(sandbox_path)
 
-    case File.write(sandbox_path, mutated_source) do
+    case File.write(sandbox_path, pad_to_unseen_size(mutated_source, sandbox, original_path)) do
       :ok ->
         # Delete the stale .beam so the child `mix test` process detects
         # the source change and recompiles the module. Pre-compiling via
@@ -350,6 +350,22 @@ defmodule Muex.Sandbox do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  # Mix recompiles a source only when its size differs from the last compile, or
+  # its mtime (whole seconds) does and then only if the .beam is missing or the
+  # content changed; before Elixir 1.20 the mtime must also be newer. Two mutants
+  # of one file with the same byte size, written within one second, looked
+  # unchanged: nothing recompiled, the module whose .beam was deleted did not
+  # exist, every test failed, and the mutant was scored killed untested.
+  #
+  # Size is the one check every Elixir version makes first, so trailing newlines
+  # give each write a size no compile has recorded: larger than the original's,
+  # and never used twice. They add no code and move no line.
+  defp pad_to_unseen_size(source, sandbox, original_path) do
+    %File.Stat{size: original_size} = File.stat!(Path.join(sandbox.project_root, original_path))
+    target = 2 * original_size + 4096 + System.unique_integer([:positive, :monotonic])
+    source <> String.duplicate("\n", max(target - byte_size(source), 1))
   end
 
   @doc """

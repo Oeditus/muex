@@ -247,6 +247,10 @@ handling that never hides a killable mutant:
 - **Coverage-guided execution** (`--coverage-guided`): runs only the tests that
   execute the mutated line; a line that no test covers is reported as
   `No coverage` and skipped instead of wasting a full test run.
+- **Tests that never ran**: when every test chosen for a mutant is excluded or
+  skipped (for example `:integration` tests without their database), `mix test`
+  still exits 0, and the mutant is reported as `No coverage`, not survived. In an
+  umbrella, the baseline refuses the run before any mutant if its tests ran none.
 - **Incremental `--since <ref>`**: scopes mutation testing to the lines changed
   since a git ref (`git diff <ref>...HEAD`), which is ideal for pull-request CI:
 
@@ -326,7 +330,7 @@ Mutation Testing Results
 Total mutants: 342
 Killed: 287 (caught by tests)
 Survived: 55 (not caught by tests)
-Invalid: 0 (compilation errors)
+Invalid: 0 (did not compile, or could not be run)
 Timeout: 0
 ==================================================
 Mutation Score: 83.9%
@@ -351,7 +355,7 @@ Analyzing files for mutation testing suitability...
 Colored terminal output with progress indicators and summary:
 - Green for killed mutations (tests caught the bug)
 - Red for survived mutations (tests missed the bug)
-- Yellow for invalid mutations (compilation errors)
+- Yellow for invalid mutations (did not compile, or could not be run)
 - Magenta for timeouts
 - Color-coded mutation score (green ≥80%, yellow ≥60%, red <60%)
 
@@ -361,7 +365,7 @@ Mutation Testing Results
 Total mutants: 25
 Killed: 20 (caught by tests)
 Survived: 5 (not caught by tests)
-Invalid: 0 (compilation errors)
+Invalid: 0 (did not compile, or could not be run)
 Timeout: 0
 ==================================================
 Mutation Score: 80.0%

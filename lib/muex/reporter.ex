@@ -46,7 +46,11 @@ defmodule Muex.Reporter do
     IO.puts("#{@bold}Total mutants:#{@reset} #{total}")
     IO.puts("#{@green}Killed:#{@reset} #{killed} #{@gray}(caught by tests)#{@reset}")
     IO.puts("#{@red}Survived:#{@reset} #{survived} #{@gray}(not caught by tests)#{@reset}")
-    IO.puts("#{@yellow}Invalid:#{@reset} #{invalid} #{@gray}(compilation errors)#{@reset}")
+
+    IO.puts(
+      "#{@yellow}Invalid:#{@reset} #{invalid} #{@gray}(did not compile, or could not be run)#{@reset}"
+    )
+
     IO.puts("#{@magenta}Timeout:#{@reset} #{timeout}")
 
     if equivalent > 0 do
@@ -57,8 +61,10 @@ defmodule Muex.Reporter do
 
     if no_coverage > 0 do
       IO.puts(
-        "#{@gray}No coverage:#{@reset} #{no_coverage} #{@gray}(no test exercises the line, skipped)#{@reset}"
+        "#{@gray}No coverage:#{@reset} #{no_coverage} #{@gray}(no test ran against it, skipped)#{@reset}"
       )
+
+      print_no_tests_ran(results)
     end
 
     IO.puts("#{@gray}#{String.duplicate("=", 50)}#{@reset}")
@@ -163,6 +169,23 @@ defmodule Muex.Reporter do
     end
 
     :ok
+  end
+
+  # A no-coverage mutant whose chosen tests ran 0 tests (all excluded, skipped or
+  # invalid) points at the test setup, not at a gap in the tests. Say so once.
+  defp print_no_tests_ran(results) do
+    count =
+      Enum.count(results, fn result ->
+        result.result == :no_coverage and is_binary(result.error) and
+          String.starts_with?(result.error, "0 tests ran")
+      end)
+
+    if count > 0 do
+      IO.puts(
+        "  #{@yellow}#{count} of them had tests chosen, but 0 tests ran: every one was " <>
+          "excluded, skipped or invalid. Check the tags test_helper.exs excludes.#{@reset}"
+      )
+    end
   end
 
   defp print_survived_mutations(results) do

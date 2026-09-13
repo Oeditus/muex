@@ -32,7 +32,8 @@ Mutation testing is a technique to evaluate the effectiveness of your test suite
 - **Mutant**: A version of your code with a single deliberate bug
 - **Killed**: A mutant caught by your tests (good!)
 - **Survived**: A mutant not caught by your tests (indicates weak test coverage)
-- **Invalid**: A mutant that causes compilation errors
+- **Invalid**: A mutant that does not compile, or that muex could not run (the error says which)
+- **No coverage**: A mutant no test ran against: no test covers its line (`--coverage-guided`), or every test chosen for it was excluded or skipped
 - **Mutation Score**: Percentage of mutants killed by your tests
 
 A high mutation score (typically 80%+) indicates that your tests are effective at catching real bugs.
@@ -748,7 +749,7 @@ mix muex
 **Features:**
 - Green: Killed mutants (tests caught the bug)
 - Red: Survived mutants (tests missed the bug)
-- Yellow: Invalid mutants (compilation errors)
+- Yellow: Invalid mutants (did not compile, or could not be run)
 - Magenta: Timeouts
 - Color-coded mutation score (green ≥80%, yellow ≥60%, red <60%)
 - Summary statistics
@@ -770,7 +771,7 @@ Mutation Testing Results
 Total mutants: 342
 Killed: 287 (caught by tests)
 Survived: 55 (not caught by tests)
-Invalid: 0 (compilation errors)
+Invalid: 0 (did not compile, or could not be run)
 Timeout: 0
 ==================================================
 Mutation Score: 83.9%

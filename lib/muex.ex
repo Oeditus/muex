@@ -127,7 +127,7 @@ defmodule Muex do
 
         log("Generating mutations...", config.verbose)
 
-        all_mutations =
+        {candidates, equivalent_results} =
           files
           |> Enum.flat_map(fn file ->
             context = %{file: file.path, skip_calls: config.skip_calls}
@@ -135,14 +135,14 @@ defmodule Muex do
           end)
           |> maybe_drop_unlocatable(config)
           |> Muex.GitDiff.filter_mutations(changed)
-          |> drop_equivalent(config)
-          |> maybe_optimize(config)
-          |> maybe_cap(config)
+          |> split_equivalent(config)
 
-        if all_mutations == [] do
-          {:ok, %{results: [], score_low: 0.0, score_high: 0.0}}
-        else
-          run_mutations(config, files, all_mutations)
+        all_mutations = candidates |> maybe_optimize(config) |> maybe_cap(config)
+
+        cond do
+          all_mutations != [] -> run_mutations(config, files, all_mutations, equivalent_results)
+          equivalent_results != [] -> report_unscored(equivalent_results, config)
+          true -> {:ok, %{results: [], score_low: 0.0, score_high: 0.0}}
         end
     end
   end
@@ -210,12 +210,24 @@ defmodule Muex do
     end
   end
 
-  # Always-on, sound: equivalent mutants can never be killed, so dropping them
-  # is a correctness step independent of the (lossy) --optimize sampling.
-  defp drop_equivalent(mutations, %Muex.Config{verbose: verbose}) do
-    kept = Muex.Equivalence.filter_equivalent(mutations)
-    log("Dropped #{length(mutations) - length(kept)} equivalent mutant(s)", verbose)
-    kept
+  # Always-on: equivalent mutants can never be killed, so they are not run. They
+  # are still results: each is reported as :equivalent, like the ones TCE finds,
+  # so what was judged equivalent can be read and questioned. The score leaves
+  # them out either way.
+  defp split_equivalent(mutations, %Muex.Config{verbose: verbose}) do
+    {equivalent, kept} = Enum.split_with(mutations, &Muex.Equivalence.equivalent?/1)
+    log("Found #{length(equivalent)} equivalent mutant(s), reported without running", verbose)
+    {kept, Enum.map(equivalent, &equivalent_result/1)}
+  end
+
+  defp equivalent_result(mutation) do
+    %{
+      mutation: mutation,
+      result: :equivalent,
+      duration_ms: 0,
+      error: "judged equivalent by Muex.Equivalence, so it was not run",
+      test_files: []
+    }
   end
 
   defp maybe_optimize(mutations, %Muex.Config{optimize: false}), do: mutations
@@ -259,7 +271,7 @@ defmodule Muex do
     Muex.Coverage.collect(test_files, file_to_module, cd: config.project_root)
   end
 
-  defp run_mutations(config, files, all_mutations) do
+  defp run_mutations(config, files, all_mutations, equivalent_results) do
     log("Testing #{length(all_mutations)} mutation(s)", config.verbose)
     log("Analyzing test dependencies...", config.verbose)
 
@@ -296,8 +308,23 @@ defmodule Muex do
         coverage_index: coverage_index
       )
 
-    report(results, config)
+    results
+    |> with_equivalents(equivalent_results)
+    |> report(config)
   end
+
+  # Nothing was left to run, only mutants judged equivalent. The report shows
+  # them, but the result is the same as for a run with no mutants, so the escript
+  # and the Mix task exit exactly as they did before equivalents were reported.
+  defp report_unscored(equivalent_results, config) do
+    case output_report(equivalent_results, config) do
+      {:error, _} = err -> err
+      _ -> {:ok, %{results: [], score_low: 0.0, score_high: 0.0}}
+    end
+  end
+
+  defp with_equivalents({:error, _reason} = err, _equivalent_results), do: err
+  defp with_equivalents(results, equivalent_results), do: results ++ equivalent_results
 
   # The worker pool answers {:error, reason} when it refused the run before any
   # mutant ran (see Muex.Sandbox.Error). Nothing is scored.
