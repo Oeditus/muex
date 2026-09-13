@@ -135,11 +135,49 @@ defmodule Muex.Compiler do
     kind, reason -> {:error, {kind, reason}}
   end
 
+  # Replace the one node the mutation was generated from. `Muex.Mutator.walk/3`
+  # records its position as `:ast_path`, and that is the only thing that
+  # tells apart two copies of the same code on one line (`x + 1 + (x + 1)`).
+  # Matching on line and structure alone rewrites both. A mutation built by
+  # hand carries no position, and a position that does not lead to an equal
+  # node (the mutation was generated from a different AST) is not trusted:
+  # both fall back to matching on the line.
   defp apply_mutation(ast, mutation) do
     original_ast = Map.get(mutation, :original_ast)
     mutated_ast = Map.get(mutation, :ast)
-    transform(ast, 0, original_ast, mutated_ast, match_line(mutation))
+
+    case replace_at(ast, Map.get(mutation, :ast_path), original_ast, mutated_ast) do
+      {:ok, mutated_full_ast} -> mutated_full_ast
+      :error -> transform(ast, 0, original_ast, mutated_ast, match_line(mutation))
+    end
   end
+
+  # The AST with the node at `path` replaced by `mutated`, when that node is
+  # structurally equal to `original`. `:error` for anything else, including a
+  # `nil` path and a negative index.
+  defp replace_at(node, [], original, mutated) do
+    case structurally_equal?(node, original) do
+      true -> {:ok, mutated}
+      false -> :error
+    end
+  end
+
+  defp replace_at(tuple, [index | rest], original, mutated)
+       when is_tuple(tuple) and is_integer(index) and index >= 0 and index < tuple_size(tuple) do
+    with {:ok, child} <- replace_at(elem(tuple, index), rest, original, mutated) do
+      {:ok, put_elem(tuple, index, child)}
+    end
+  end
+
+  defp replace_at(list, [index | rest], original, mutated)
+       when is_list(list) and is_integer(index) and index >= 0 do
+    with {:ok, child} <- Enum.fetch(list, index),
+         {:ok, child} <- replace_at(child, rest, original, mutated) do
+      {:ok, List.replace_at(list, index, child)}
+    end
+  end
+
+  defp replace_at(_node, _path, _original, _mutated), do: :error
 
   # The line that identifies the node to replace, which is not necessarily the
   # line the mutation reports. `location.line` is a display value: a mutator may

@@ -39,6 +39,11 @@ defmodule Muex.Mutator.WalkTest do
 
   defp ast!(source), do: Code.string_to_quoted!(source)
 
+  # The node at `path`: tuple and list indices, from the root.
+  defp follow(node, []), do: node
+  defp follow(tuple, [index | rest]) when is_tuple(tuple), do: follow(elem(tuple, index), rest)
+  defp follow(list, [index | rest]) when is_list(list), do: follow(Enum.at(list, index), rest)
+
   describe "line propagation" do
     test "leaf literals inherit the nearest enclosing line" do
       ast =
@@ -176,6 +181,58 @@ defmodule Muex.Mutator.WalkTest do
 
       assert Enum.any?(mutations, &match?({:|, _meta, _args}, &1.original_ast))
     end
+
+    test "the `/` of a function capture is skipped but its operands are mutated" do
+      # `&Path.dirname/1` and `&double/1` put a `/` under `&` that names the
+      # arity. FunctionCall treated it as a call and removed it or swapped its
+      # arguments, Arithmetic as division: none of those is a valid capture.
+      ast =
+        ast!("""
+        defmodule Sample do
+          def run(xs), do: xs |> Enum.map(&Path.dirname/1) |> Enum.map(&double/2)
+        end
+        """)
+
+      mutations = Mutator.walk(ast, [Literal, FunctionCall, Arithmetic], %{file: "s.ex"})
+
+      refute Enum.any?(mutations, &match?({:/, _meta, _args}, &1.original_ast))
+
+      # Pre-order: the function before its arity.
+      assert [:dirname, 1, 1, 2, 2] =
+               mutations
+               |> Enum.map(& &1.original_ast)
+               |> Enum.filter(&(&1 in [:dirname, 1, 2]))
+    end
+
+    test "the operands of a capture's `/` take the `/` line" do
+      ast =
+        ast!("""
+        defmodule Sample do
+          def run(xs) do
+            Enum.map(xs, &(
+              Path.dirname/1
+            ))
+          end
+        end
+        """)
+
+      mutations = Mutator.walk(ast, [Literal], %{file: "s.ex"})
+
+      assert [4, 4] = for(%{original_ast: 1} = m <- mutations, do: m.location.line)
+    end
+
+    test "the `/` of division inside a capture is still mutated" do
+      ast =
+        ast!("""
+        defmodule Sample do
+          def halve(xs), do: Enum.map(xs, &(&1 / 2))
+        end
+        """)
+
+      mutations = Mutator.walk(ast, [FunctionCall, Arithmetic], %{file: "s.ex"})
+
+      assert Enum.any?(mutations, &match?({:/, _meta, _args}, &1.original_ast))
+    end
   end
 
   describe "configurable skip_calls" do
@@ -206,6 +263,39 @@ defmodule Muex.Mutator.WalkTest do
 
       assert Enum.all?(mutations, &Map.has_key?(&1, :original_ast))
       assert Enum.any?(mutations, &match?({:+, _meta, _args}, &1.original_ast))
+    end
+
+    test "every mutation's ast_path leads to its original_ast" do
+      # Muex.Compiler replaces the node at `:ast_path` and falls back to
+      # matching on the line when the position is wrong, so a wrong position
+      # would not fail loudly: the mutant would quietly rewrite every equal
+      # node on its line again. This source goes through every clause of the
+      # walk: map and struct updates, captures, remote calls, keyword and
+      # literal pairs, lists, attributes and blocks.
+      ast =
+        ast!("""
+        defmodule Sample do
+          @limit 10
+          def run(s, xs) do
+            s = %{hd([s]) | count: s.count + 1, seen: [1, 2 + 3]}
+            t = %Sample.State{s | total: {s.count * 2, :ok}}
+            ys = Enum.map(xs, &Path.dirname/1) ++ Enum.map(xs, &(&1 / 2))
+            case Map.get(t, :total, 1 - 1) do
+              {n, :ok} when n > @limit -> [x: n + 1 + (n + 1)]
+              _ -> ys |> Enum.reverse() |> hd()
+            end
+          end
+        end
+        """)
+
+      mutations = Mutator.walk(ast, Muex.Config.all_mutators(), %{file: "s.ex"})
+
+      assert length(mutations) > 50
+
+      for mutation <- mutations do
+        assert follow(ast, mutation.ast_path) == mutation.original_ast,
+               "#{mutation.description} at #{inspect(mutation.ast_path)}"
+      end
     end
 
     test "remote call arguments are still traversed" do

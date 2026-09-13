@@ -248,6 +248,9 @@ results:
 - Documentation and typespec attributes: `@doc`, `@moduledoc`, `@typedoc`,
   `@type`, `@spec`, `@behaviour`, `@impl`, and similar
 - Keyword/option keys (only the value of a `key: value` pair is mutated)
+- The `/` of a function capture (`&Mod.fun/arity`, `&fun/arity`), which names
+  the arity rather than dividing; division inside a capture, `&(&1 / 2)`, is
+  still mutated
 
 This pruning is always on and requires no configuration. Literals inside function
 bodies still receive an accurate source line, so survived and suspicious mutants
@@ -411,7 +414,7 @@ Some mutations cannot change observable behaviour, so no test could ever kill
 them. Counting them as survivors would deflate the score, so Muex drops them
 soundly (it never drops a killable mutant):
 
-- AST identity rules (for example `a + 0` vs `a - 0`, `a * 1` vs `a / 1`).
+- AST identity rules (for example `a + 0` vs `a - 0`, `x <<< 0` vs `x >>> 0`).
 - Trivial Compiler Equivalence (TCE): mutants that compile to byte-identical
   BEAM, such as deleting a `@moduledoc`.
 

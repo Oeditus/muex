@@ -239,8 +239,8 @@ In addition to the (lossy) optimizer above, Muex applies sound, always-on
 handling that never hides a killable mutant:
 
 - **Equivalent-mutant detection**: AST identity rules (`a + 0` vs `a - 0`,
-  `a * 1` vs `a / 1`, bitshift-by-zero) drop mutations that cannot change
-  behaviour. They are reported as `Equivalent` and excluded from the score.
+  bitshift-by-zero) drop mutations that cannot change behaviour. They are
+  reported as `Equivalent` and excluded from the score.
 - **Trivial Compiler Equivalence (TCE)**: mutants that compile to byte-identical
   BEAM (for example, deleting a `@moduledoc`) are skipped. Disable with
   `--no-tce`.

@@ -18,9 +18,21 @@ defmodule Muex.EquivalenceTest do
       assert Equivalence.equivalent?(mutation(quoted("a - 0"), quoted("a + 0")))
     end
 
-    test "a * 1 <-> a / 1 is equivalent (both equal a)" do
-      assert Equivalence.equivalent?(mutation(quoted("a * 1"), quoted("a / 1")))
-      assert Equivalence.equivalent?(mutation(quoted("a / 1"), quoted("a * 1")))
+    # `/` always returns a float, so `a / 1` is not `a`: `2 * 1 === 2 / 1` is
+    # false, and `is_integer/1`, an integer pattern or `Integer.to_string/1` tells
+    # them apart. A test can kill this mutant, so it must be run.
+    test "a * 1 <-> a / 1 is not equivalent (/ always returns a float)" do
+      refute Equivalence.equivalent?(mutation(quoted("a * 1"), quoted("a / 1")))
+      refute Equivalence.equivalent?(mutation(quoted("a / 1"), quoted("a * 1")))
+    end
+
+    test "the * to / mutant of a * 1 is kept for the run" do
+      ast = quoted("defmodule S do\n  def f(a), do: a * 1\nend")
+      mutations = Muex.Mutator.walk(ast, [Muex.Mutator.Arithmetic], %{file: "s.ex"})
+
+      assert %{} = mutant = Enum.find(mutations, &(&1.description == "Arithmetic: * to /"))
+      refute Equivalence.equivalent?(mutant)
+      assert mutant in Equivalence.filter_equivalent(mutations)
     end
 
     test "the identity operand must be on the right (0 - a is not equivalent to 0 + a)" do

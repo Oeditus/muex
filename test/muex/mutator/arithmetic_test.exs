@@ -81,6 +81,49 @@ defmodule Muex.Mutator.ArithmeticTest do
     end
   end
 
+  describe "function captures, walked with Muex.Mutator.walk/3" do
+    # In `&Path.dirname/1` the `/` names the arity; it is not division. Every
+    # mutation of it is an invalid capture: `&(Path.dirname() * 1)` and `&1`
+    # do not compile, and for arity 1 the first used to be called equivalent.
+    defp walk(source) do
+      source
+      |> Code.string_to_quoted!()
+      |> Muex.Mutator.walk([Arithmetic], %{file: "s.ex"})
+    end
+
+    test "the arity of a remote capture is not mutated" do
+      assert [] = walk("def a(xs), do: Enum.map(xs, &Path.dirname/1)")
+      assert [] = walk("def b(xs), do: Enum.reduce(xs, 0, &Kernel.+/2)")
+    end
+
+    test "the arity of a local capture is not mutated" do
+      assert [] = walk("def d(xs), do: Enum.map(xs, &double/1)")
+    end
+
+    test "division inside a capture is still mutated" do
+      # `&(&1 / 2)` also has an integer right of the `/`, directly under `&`.
+      # What makes it division is the left operand, `&1`, not a function name.
+      mutations = walk("def c(xs), do: Enum.map(xs, &(&1 / 2))")
+
+      assert Enum.map(mutations, & &1.description) == [
+               "Arithmetic: / to *",
+               "Arithmetic: / to 1 (identity)"
+             ]
+
+      assert Enum.all?(mutations, &match?({:/, _meta, [{:&, _, [1]}, 2]}, &1.original_ast))
+    end
+
+    test "division by the argument inside a capture is still mutated" do
+      # `&(x / &1)` has a variable left of the `/`, like `&fun/1`; what makes it
+      # division is that the right is not an integer arity.
+      assert [
+               %{description: "Arithmetic: / to *"},
+               %{description: "Arithmetic: / to 1 (identity)"}
+             ] =
+               walk("def e(xs, x), do: Enum.map(xs, &(x / &1))")
+    end
+  end
+
   describe "name/0" do
     test "returns mutator name" do
       assert "Arithmetic" = Arithmetic.name()
