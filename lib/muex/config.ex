@@ -477,7 +477,7 @@ defmodule Muex.Config do
     {:error, "--output needs --format json or --format html, not #{format}"}
   end
 
-  @unmirrorable_dirs ~w(lib test spec deps _build apps config priv .git)
+  @unmirrorable_dirs ~w(lib test deps _build apps config .git)
 
   defp validate_mirror(nil), do: validate_mirror(Application.get_env(:muex, :mirror, []))
 
