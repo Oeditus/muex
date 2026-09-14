@@ -340,13 +340,10 @@ defmodule Muex.Sandbox do
     dirs = original_path |> Path.dirname() |> Path.split()
     mirror = Map.get(sandbox, :mirror, [])
 
-    case dirs do
-      [first | _] ->
-        if first in mirror, do: mirror_symlinked_dirs(dirs, sandbox.root), else: :ok
-
-      [] ->
-        :ok
-    end
+    with [first | _] <- dirs,
+         true <- first in mirror,
+      do: mirror_symlinked_dirs(dirs, sandbox.root),
+      else: (_ -> :ok)
   end
 
   defp mirror_symlinked_dirs([], _root), do: :ok
