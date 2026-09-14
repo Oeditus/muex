@@ -392,6 +392,68 @@ defmodule Muex.SandboxTest do
     end
   end
 
+  describe "mirrored dirs" do
+    @describetag :tmp_dir
+
+    test "top-level dirs beyond config and priv are not linked by default", %{tmp_dir: tmp_dir} do
+      project_root = build_mirror_project(tmp_dir)
+
+      sandbox = Sandbox.create_sandbox(Path.join(tmp_dir, "sandbox"), project_root, "test", [])
+
+      refute File.exists?(Path.join(sandbox.root, "connector"))
+    end
+
+    test "dirs passed to create_sandbox/5 are linked into the sandbox", %{tmp_dir: tmp_dir} do
+      project_root = build_mirror_project(tmp_dir)
+
+      sandbox =
+        Sandbox.create_sandbox(Path.join(tmp_dir, "sandbox"), project_root, "test", [], [
+          "connector"
+        ])
+
+      assert {:ok, _} = File.read_link(Path.join(sandbox.root, "connector"))
+      assert File.exists?(Path.join(sandbox.root, "connector/package.json"))
+    end
+
+    test "mutating a file in a mirrored dir keeps the project copy untouched", %{
+      tmp_dir: tmp_dir
+    } do
+      project_root = build_mirror_project(tmp_dir)
+
+      sandbox =
+        Sandbox.create_sandbox(Path.join(tmp_dir, "sandbox"), project_root, "test", [], [
+          "connector"
+        ])
+
+      project_path = Path.join(project_root, "connector/client.ex")
+      original = File.read!(project_path)
+
+      assert {:ok, _} = Sandbox.apply_mutation(sandbox, "connector/client.ex", "# mutated", nil)
+
+      sandbox_path = Path.join(sandbox.root, "connector/client.ex")
+      assert {:error, _} = File.read_link(Path.join(sandbox.root, "connector"))
+      assert {:ok, _} = File.read_link(Path.join(sandbox.root, "connector/package.json"))
+      assert {:error, _} = File.read_link(sandbox_path)
+      assert String.trim_trailing(File.read!(sandbox_path), "\n") == "# mutated"
+      assert File.read!(project_path) == original
+
+      assert :ok = Sandbox.restore(sandbox, "connector/client.ex")
+      assert File.read!(sandbox_path) == original
+      assert File.read!(project_path) == original
+    end
+  end
+
+  defp build_mirror_project(tmp_dir) do
+    project_root = Path.join(tmp_dir, "project")
+    File.mkdir_p!(Path.join(project_root, "lib"))
+    File.mkdir_p!(Path.join(project_root, "connector"))
+    File.write!(Path.join(project_root, "mix.exs"), "# fake mix.exs")
+    File.write!(Path.join(project_root, "lib/foo.ex"), "defmodule Foo, do: nil")
+    File.write!(Path.join(project_root, "connector/client.ex"), "defmodule Client, do: nil")
+    File.write!(Path.join(project_root, "connector/package.json"), "{}")
+    project_root
+  end
+
   # Warm-up progress goes to stderr, so it cannot corrupt `--format json`.
   defp warm_pool(project_root) do
     {sandboxes, stderr} =

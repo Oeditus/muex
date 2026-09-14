@@ -36,7 +36,8 @@ defmodule Muex.Sandbox do
           required(:root) => Path.t(),
           required(:project_root) => Path.t(),
           required(:build_env) => String.t(),
-          optional(:base) => Path.t()
+          optional(:base) => Path.t(),
+          optional(:mirror) => [String.t()]
         }
 
   @doc """
@@ -49,6 +50,7 @@ defmodule Muex.Sandbox do
     project_root = Keyword.get(opts, :project_root, File.cwd!())
     build_env = Keyword.get(opts, :build_env, "test")
     test_paths = Keyword.get(opts, :test_paths, ["test"])
+    mirror = Keyword.get(opts, :mirror, [])
 
     unique = System.unique_integer([:positive, :monotonic])
 
@@ -61,7 +63,7 @@ defmodule Muex.Sandbox do
     # error, anything), the partial tree goes with it: the caller has no
     # sandbox list yet to clean up.
     try do
-      build_pool!(count, base_dir, project_root, build_env, test_paths)
+      build_pool!(count, base_dir, project_root, build_env, test_paths, mirror)
     rescue
       e ->
         File.rm_rf(base_dir)
@@ -69,7 +71,7 @@ defmodule Muex.Sandbox do
     end
   end
 
-  defp build_pool!(count, base_dir, project_root, build_env, test_paths) do
+  defp build_pool!(count, base_dir, project_root, build_env, test_paths, mirror) do
     sandboxes =
       for i <- 1..count do
         worker_dir = Path.join(base_dir, "worker_#{i}")
@@ -78,12 +80,12 @@ defmodule Muex.Sandbox do
           # The umbrella lands under its own directory name, beside links to
           # everything next to it. See link_project_siblings/2.
           root = Path.join(worker_dir, Path.basename(project_root))
-          sandbox = create_sandbox(root, project_root, build_env, test_paths)
+          sandbox = create_sandbox(root, project_root, build_env, test_paths, mirror)
           link_project_siblings(worker_dir, project_root)
           Map.put(sandbox, :base, base_dir)
         else
           worker_dir
-          |> create_sandbox(project_root, build_env, test_paths)
+          |> create_sandbox(project_root, build_env, test_paths, mirror)
           |> Map.put(:base, base_dir)
         end
       end
@@ -167,8 +169,8 @@ defmodule Muex.Sandbox do
   @doc """
   Creates a single sandbox directory mirroring the project.
   """
-  @spec create_sandbox(Path.t(), Path.t(), String.t(), [String.t()]) :: sandbox()
-  def create_sandbox(root, project_root, build_env, test_paths) do
+  @spec create_sandbox(Path.t(), Path.t(), String.t(), [String.t()], [String.t()]) :: sandbox()
+  def create_sandbox(root, project_root, build_env, test_paths, mirror \\ []) do
     File.mkdir_p!(root)
 
     if umbrella?(project_root) do
@@ -176,19 +178,19 @@ defmodule Muex.Sandbox do
       create_umbrella_sandbox(root, project_root, build_env)
       link_test_paths(root, project_root, test_paths)
     else
-      create_project_sandbox(root, project_root, build_env, test_paths)
+      create_project_sandbox(root, project_root, build_env, test_paths, mirror)
     end
 
-    %{root: root, project_root: project_root, build_env: build_env}
+    %{root: root, project_root: project_root, build_env: build_env, mirror: mirror}
   end
 
   @doc false
   @spec umbrella?(Path.t()) :: boolean()
   def umbrella?(project_root), do: File.dir?(Path.join(project_root, "apps"))
 
-  defp create_project_sandbox(root, project_root, build_env, test_paths) do
+  defp create_project_sandbox(root, project_root, build_env, test_paths, mirror) do
     # Symlink top-level files
-    symlink_top_level(root, project_root)
+    symlink_top_level(root, project_root, mirror)
 
     mirror_source_tree(root, project_root, "lib")
 
@@ -320,6 +322,8 @@ defmodule Muex.Sandbox do
     # can swap individual source files.
     ensure_app_mirrored_for_file(sandbox, original_path)
 
+    ensure_path_mirrored_for_file(sandbox, original_path)
+
     # Ensure the mutated app's build dir is a real copy (not a symlink)
     # so this sandbox can recompile independently.
     ensure_build_copy_for_file(sandbox, original_path)
@@ -329,6 +333,40 @@ defmodule Muex.Sandbox do
       write_mutant(sandbox, sandbox_path, original_path, mutated_source, module_name)
     else
       {:error, {:outside_sandbox, original_path}}
+    end
+  end
+
+  defp ensure_path_mirrored_for_file(sandbox, original_path) do
+    dirs = original_path |> Path.dirname() |> Path.split()
+    mirror = Map.get(sandbox, :mirror, [])
+
+    with [first | _] <- dirs,
+         true <- first in mirror,
+      do: mirror_symlinked_dirs(dirs, sandbox.root),
+      else: (_ -> :ok)
+  end
+
+  defp mirror_symlinked_dirs([], _root), do: :ok
+
+  defp mirror_symlinked_dirs([dir | rest], root) do
+    path = Path.join(root, dir)
+
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :symlink}} ->
+        {:ok, target} = File.read_link(path)
+        target = if Path.type(target) == :absolute, do: target, else: Path.expand(target, root)
+        File.rm(path)
+        File.mkdir_p!(path)
+
+        target
+        |> File.ls!()
+        |> Enum.each(&safe_symlink(Path.join(target, &1), Path.join(path, &1)))
+
+      {:ok, %File.Stat{type: :directory}} ->
+        mirror_symlinked_dirs(rest, path)
+
+      _ ->
+        :ok
     end
   end
 
@@ -411,7 +449,7 @@ defmodule Muex.Sandbox do
 
   # -- Private helpers --
 
-  defp symlink_top_level(root, project_root) do
+  defp symlink_top_level(root, project_root, mirror) do
     top_level_files = ~w(mix.exs mix.lock .formatter.exs .credo.exs)
 
     for file <- top_level_files do
@@ -422,9 +460,7 @@ defmodule Muex.Sandbox do
       end
     end
 
-    top_level_dirs = ~w(config priv)
-
-    for dir <- top_level_dirs do
+    for dir <- ~w(config priv) ++ mirror do
       source = Path.join(project_root, dir)
 
       if File.dir?(source) do

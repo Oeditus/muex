@@ -24,6 +24,7 @@ defmodule Muex.ConfigTest do
       assert config.tce == true
       assert config.since == nil
       assert config.coverage_guided == false
+      assert config.mirror == []
       assert Muex.Mutator.Literal in config.mutators
       assert Muex.Mutator.StatementDeletion in config.mutators
       assert Muex.Mutator.ReturnValue in config.mutators
@@ -187,6 +188,28 @@ defmodule Muex.ConfigTest do
     test "parses --coverage-guided" do
       assert {:ok, config} = Config.from_args(["--coverage-guided"])
       assert config.coverage_guided == true
+    end
+  end
+
+  describe "--mirror" do
+    test "parses comma-separated dirs" do
+      assert {:ok, config} = Config.from_args(["--mirror", "connector,assets"])
+      assert config.mirror == ["connector", "assets"]
+    end
+
+    test "trims whitespace and drops empty entries" do
+      assert {:ok, config} = Config.from_args(["--mirror", " connector ,,assets "])
+      assert config.mirror == ["connector", "assets"]
+    end
+
+    test "rejects dirs muex manages itself" do
+      assert {:error, msg} = Config.from_args(["--mirror", "connector,lib"])
+      assert msg =~ "lib"
+    end
+
+    test "rejects dirs mirrored by default" do
+      assert {:error, msg} = Config.from_args(["--mirror", "config"])
+      assert msg =~ "config"
     end
   end
 
@@ -505,5 +528,36 @@ defmodule Muex.ConfigTest do
       assert {:ok, without} = Config.from_args([])
       assert with_paths.mutators == without.mutators
     end
+  end
+end
+
+defmodule Muex.ConfigMirrorTest do
+  use ExUnit.Case, async: false
+
+  alias Muex.Config
+
+  setup do
+    on_exit(fn -> Application.delete_env(:muex, :mirror) end)
+  end
+
+  test "mirror dirs default to the :muex application config" do
+    Application.put_env(:muex, :mirror, ["connector"])
+
+    assert {:ok, config} = Config.from_args([])
+    assert config.mirror == ["connector"]
+  end
+
+  test "--mirror overrides the application config" do
+    Application.put_env(:muex, :mirror, ["connector"])
+
+    assert {:ok, config} = Config.from_args(["--mirror", "assets"])
+    assert config.mirror == ["assets"]
+  end
+
+  test "an invalid application config is an error" do
+    Application.put_env(:muex, :mirror, ["lib"])
+
+    assert {:error, msg} = Config.from_args([])
+    assert msg =~ "lib"
   end
 end

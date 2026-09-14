@@ -63,6 +63,10 @@ defmodule Muex.Config do
       (e.g. `--since main`), using `git diff <ref>...HEAD` (PR semantics)
     * `--coverage-guided` - Run only the tests that cover each mutated line, and
       skip mutations on lines no test exercises (default: disabled)
+    * `--mirror` - Comma-separated extra top-level directories to symlink into
+      the mutation sandboxes besides the defaults (`config`, `priv`), for
+      projects that read other top-level paths at compile time. Can also be
+      set with `config :muex, mirror: ["connector"]`.
     * `--optimize-level` - Preset: `conservative`, `balanced`, `aggressive` (default: `balanced`)
     * `--min-complexity` - Override minimum complexity for optimizer
     * `--max-per-function` - Override maximum mutations per function for optimizer
@@ -115,7 +119,8 @@ defmodule Muex.Config do
           max_per_function: pos_integer() | nil,
           keep_metadata: boolean(),
           preset: String.t(),
-          skip_calls: [atom()]
+          skip_calls: [atom()],
+          mirror: [String.t()]
         }
   @enforce_keys [:files, :test_paths, :project_root, :language, :mutators]
   defstruct [
@@ -143,7 +148,8 @@ defmodule Muex.Config do
     max_per_function: nil,
     keep_metadata: false,
     preset: "none",
-    skip_calls: []
+    skip_calls: [],
+    mirror: []
   ]
 
   @option_spec files: :string,
@@ -173,7 +179,8 @@ defmodule Muex.Config do
                min_complexity: :integer,
                max_per_function: :integer,
                keep_metadata_mutations: :boolean,
-               preset: :string
+               preset: :string,
+               mirror: :string
   @doc "Parses a list of CLI argument strings into a `%Config{}`.\n\nReturns `{:ok, config}` or `{:error, reason}`.\n"
   @spec from_args([String.t()]) :: {:ok, t()} | {:error, String.t()}
   def from_args(args) do
@@ -203,7 +210,8 @@ defmodule Muex.Config do
          {:ok, optimize_level} <-
            validate_optimize_level(Keyword.get(opts, :optimize_level, "balanced")),
          {:ok, format} <- validate_format(format),
-         {:ok, output} <- validate_output(Keyword.get(opts, :output), format) do
+         {:ok, output} <- validate_output(Keyword.get(opts, :output), format),
+         {:ok, mirror} <- validate_mirror(Keyword.get(opts, :mirror)) do
       config = %__MODULE__{
         files: files,
         test_paths: resolve_test_paths(opts, app),
@@ -229,7 +237,8 @@ defmodule Muex.Config do
         max_per_function: Keyword.get(opts, :max_per_function),
         keep_metadata: Keyword.get(opts, :keep_metadata_mutations, false),
         preset: preset,
-        skip_calls: preset_skip_calls(preset)
+        skip_calls: preset_skip_calls(preset),
+        mirror: mirror
       }
 
       {:ok, config}
@@ -467,6 +476,31 @@ defmodule Muex.Config do
   defp validate_output(_path, format) do
     {:error, "--output needs --format json or --format html, not #{format}"}
   end
+
+  @unmirrorable_dirs ~w(lib test deps _build apps config .git)
+
+  defp validate_mirror(nil), do: validate_mirror(Application.get_env(:muex, :mirror, []))
+
+  defp validate_mirror(raw) when is_binary(raw) do
+    raw
+    |> String.split(",")
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> validate_mirror()
+  end
+
+  defp validate_mirror(dirs) when is_list(dirs) do
+    if Enum.all?(dirs, &is_binary/1) do
+      case Enum.find(dirs, &(&1 in @unmirrorable_dirs)) do
+        nil -> {:ok, dirs}
+        dir -> {:error, "Cannot mirror #{dir}: muex manages it already"}
+      end
+    else
+      {:error, "Invalid mirror dirs: #{inspect(dirs)}"}
+    end
+  end
+
+  defp validate_mirror(other), do: {:error, "Invalid mirror dirs: #{inspect(other)}"}
 
   # DSL call names pruned during traversal for each framework preset. These
   # are macros whose "literals" are compile-time metadata (option keys,
