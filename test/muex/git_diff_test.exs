@@ -111,7 +111,22 @@ defmodule Muex.GitDiffTest do
 
     defp git!(args, dir), do: {_, 0} = System.cmd("git", args, cd: dir, stderr_to_stdout: true)
 
+    # A hook (pre-commit) exports GIT_DIR, GIT_INDEX_FILE and friends, which would send these
+    # scratch repositories' commands to the hook's repository.
     setup %{tmp_dir: dir} do
+      saved =
+        for var <- ~w(GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_PREFIX),
+            do: {var, System.get_env(var)}
+
+      Enum.each(saved, fn {var, _value} -> System.delete_env(var) end)
+
+      on_exit(fn ->
+        Enum.each(saved, fn
+          {var, nil} -> System.delete_env(var)
+          {var, value} -> System.put_env(var, value)
+        end)
+      end)
+
       git!(["init", "-q"], dir)
       git!(["config", "user.email", "t@example.com"], dir)
       git!(["config", "user.name", "Test"], dir)

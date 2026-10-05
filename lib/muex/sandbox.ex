@@ -55,7 +55,10 @@ defmodule Muex.Sandbox do
     unique = System.unique_integer([:positive, :monotonic])
 
     base_dir =
-      Path.join(System.tmp_dir!(), "muex_sandboxes_#{System.system_time(:millisecond)}_#{unique}")
+      Path.join(
+        System.tmp_dir!(),
+        "muex_sandboxes_#{System.pid()}_#{System.system_time(:millisecond)}_#{unique}"
+      )
 
     File.mkdir_p!(base_dir)
 

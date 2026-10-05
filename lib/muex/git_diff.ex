@@ -38,7 +38,7 @@ defmodule Muex.GitDiff do
   @spec changed_since(String.t(), keyword()) :: {:ok, map()} | {:error, String.t()}
   def changed_since(ref, opts \\ []) when is_binary(ref) do
     cd = Keyword.get(opts, :cd, File.cwd!())
-    args = ["diff", "--unified=0", "--no-color", "--relative", "#{ref}...HEAD"]
+    args = ["diff", "--no-ext-diff", "--unified=0", "--no-color", "--relative", "#{ref}...HEAD"]
 
     case System.cmd("git", args, cd: cd, stderr_to_stdout: true) do
       {output, 0} -> {:ok, output |> changed_lines() |> expand_paths(cd)}

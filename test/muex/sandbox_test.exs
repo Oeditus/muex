@@ -200,6 +200,17 @@ defmodule Muex.SandboxTest do
     end
   end
 
+  describe "create_pool/2 directory name" do
+    test "includes the OS process id so concurrent muex processes never share a sandbox" do
+      [sandbox] = Sandbox.create_pool(1, project_root: @project_root, test_paths: ["test"])
+      on_exit(fn -> Sandbox.cleanup([sandbox]) end)
+
+      base_dir = sandbox.root |> Path.dirname() |> Path.basename()
+
+      assert String.starts_with?(base_dir, "muex_sandboxes_#{System.pid()}_")
+    end
+  end
+
   describe "cleanup/1" do
     test "removes all sandbox directories" do
       sandboxes = Sandbox.create_pool(2, project_root: @project_root, test_paths: ["test"])
