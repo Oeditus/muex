@@ -8,7 +8,7 @@ defmodule Muex.Mutator.FunctionCall do
   """
   @behaviour Muex.Mutator
 
-  @commutative_ops [:+, :*, :==, :!=, :===, :!==, :and, :or, :&&, :||, :when]
+  @commutative_ops [:+, :*, :==, :!=, :===, :!==, :and, :or, :&&, :||]
   @impl true
   def name do
     "FunctionCall"
@@ -102,6 +102,11 @@ defmodule Muex.Mutator.FunctionCall do
     func in [
       :def,
       :defp,
+      :defmacro,
+      :defmacrop,
+      :defdelegate,
+      :defguard,
+      :defguardp,
       :defmodule,
       :defstruct,
       :import,
@@ -124,7 +129,9 @@ defmodule Muex.Mutator.FunctionCall do
       :.,
       :&,
       :->,
-      :<-
+      :<-,
+      :when,
+      :fn
     ]
   end
 

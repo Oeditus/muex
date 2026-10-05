@@ -28,4 +28,6 @@ muex-report.*
 /.elixir_ls/
 /.erl.history/
 
+/.ragex/
+/.yoke/
 /.dialyzer/

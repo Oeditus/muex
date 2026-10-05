@@ -97,6 +97,24 @@ defmodule Muex.Mutator.FunctionCallTest do
 
       assert [] = mutations
     end
+
+    test "does not mutate when clauses" do
+      ast = {:when, [line: 1], [{:stars, [], [:points, :_max, :_goal]}, {:==, [], [:points, 0]}]}
+      context = %{file: "test.ex"}
+
+      mutations = FunctionCall.mutate(ast, context)
+
+      assert [] = mutations
+    end
+
+    test "does not mutate fn or defmacro special forms" do
+      ast_fn = {:fn, [line: 1], [{:->, [], [[:x], :x]}]}
+      ast_macro = {:defmacro, [line: 1], [:my_macro, [do: :ok]]}
+      context = %{file: "test.ex"}
+
+      assert [] = FunctionCall.mutate(ast_fn, context)
+      assert [] = FunctionCall.mutate(ast_macro, context)
+    end
   end
 
   describe "mutate/2 - remote function calls" do
@@ -237,6 +255,38 @@ defmodule Muex.Mutator.FunctionCallTest do
       assert [_, _] = mutations
       assert Enum.any?(mutations, &(&1.ast == nil))
       assert Enum.any?(mutations, &(&1.ast == {:complex, [line: 10], [:b, :a, :c, :d]}))
+    end
+  end
+
+  describe "equivalent?/1" do
+    test "returns true for swapping arguments of commutative operators like +" do
+      mutation = %{
+        description: "FunctionCall: swap arguments in +()",
+        ast: {:+, [], [:b, :a]},
+        mutator: FunctionCall
+      }
+
+      assert FunctionCall.equivalent?(mutation)
+    end
+
+    test "returns false for when operator" do
+      mutation = %{
+        description: "FunctionCall: swap arguments in when()",
+        ast: {:when, [], [:b, :a]},
+        mutator: FunctionCall
+      }
+
+      refute FunctionCall.equivalent?(mutation)
+    end
+
+    test "returns false for non-commutative function call swaps" do
+      mutation = %{
+        description: "FunctionCall: swap arguments in process()",
+        ast: {:process, [], [:b, :a]},
+        mutator: FunctionCall
+      }
+
+      refute FunctionCall.equivalent?(mutation)
     end
   end
 
