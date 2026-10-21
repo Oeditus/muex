@@ -71,23 +71,21 @@ defmodule Muex.FileAnalyzer do
         case analyze_file(file) do
           {:ok, score} when score >= min_score ->
             if verbose do
-              Mix.shell().info("  ✓ #{Path.relative_to_cwd(file.path)} (score: #{score})")
+              info("  ✓ #{Path.relative_to_cwd(file.path)} (score: #{score})")
             end
 
             true
 
           {:ok, score} ->
             if verbose do
-              Mix.shell().info(
-                "  - #{Path.relative_to_cwd(file.path)} (score: #{score}, below threshold)"
-              )
+              info("  - #{Path.relative_to_cwd(file.path)} (score: #{score}, below threshold)")
             end
 
             false
 
           {:skip, reason} ->
             if verbose do
-              Mix.shell().info("  ✗ #{Path.relative_to_cwd(file.path)} (#{reason})")
+              info("  ✗ #{Path.relative_to_cwd(file.path)} (#{reason})")
             end
 
             false
@@ -95,6 +93,15 @@ defmodule Muex.FileAnalyzer do
       end)
 
     {included, excluded}
+  end
+
+  # The escript runs without Mix, so `Mix.shell/0` is not always there.
+  defp info(message) do
+    if Code.ensure_loaded?(Mix) and function_exported?(Mix, :shell, 0) do
+      Mix.shell().info(message)
+    else
+      IO.puts(message)
+    end
   end
 
   # Check if module is a Mix task

@@ -75,6 +75,11 @@ cd /path/to/your/project
 muex
 ```
 
+The escript embeds Elixir but not Mix: it loads the Mix that belongs to the
+`elixir` executable on your `PATH`, then evaluates your project's `mix.exs`.
+Elixir therefore has to be installed (the escript does not need to be built
+against the same version as your project).
+
 For detailed installation instructions and comparison, see [docs/INSTALLATION.md](docs/INSTALLATION.md).
 
 ## Usage

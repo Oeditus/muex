@@ -52,6 +52,12 @@ defmodule Muex.MixProject do
     ]
   end
 
+  # The escript embeds Elixir but deliberately not Mix: Mix evaluates the
+  # `mix.exs` of the project it runs in, so it must be that project's Elixir
+  # version, not the one muex was built with. `Muex.MixBootstrap` starts the Mix
+  # that belongs to the `elixir` on PATH and loads the project's `mix.exs`.
+  # CI validates that the built escript runs a real project (see
+  # .github/workflows/escript.yml).
   def escript do
     [
       main_module: Muex.CLI,

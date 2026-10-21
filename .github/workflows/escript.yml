@@ -1,0 +1,148 @@
+name: Escript
+
+# The escript is the one installation method that does not run under `mix`, so
+# nothing in the test suite exercises how it starts Mix and loads a project.
+# This workflow builds the escript and runs it against a real project.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'lib/**'
+      - 'test/**'
+      - 'mix.exs'
+      - 'mix.lock'
+      - '.github/workflows/escript.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'lib/**'
+      - 'test/**'
+      - 'mix.exs'
+      - 'mix.lock'
+      - '.github/workflows/escript.yml'
+
+jobs:
+  escript:
+    name: Escript (Elixir ${{matrix.elixir}} / OTP ${{matrix.otp}})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        elixir: ['1.18', '1.20']
+        otp: ['27', '29']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: ${{matrix.elixir}}
+          otp-version: ${{matrix.otp}}
+
+      - name: Restore dependencies cache
+        uses: actions/cache@v4
+        with:
+          path: deps
+          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-
+
+      - name: Install dependencies
+        run: mix deps.get
+
+      - name: Build escript
+        run: mix escript.build
+
+      - name: The escript does not embed Mix
+        # Mix evaluates the `mix.exs` of the project it runs in, so it is loaded
+        # from the Elixir on PATH rather than embedded. `Muex.MixBootstrap`
+        # depends on that; fail loudly if the build starts embedding it.
+        run: |
+          if strings muex | grep -qE '^mix/ebin/Elixir\.Mix\.Project\.beam'; then
+            echo "::error::Mix is embedded in the escript; Muex.MixBootstrap expects it on PATH"
+            exit 1
+          fi
+
+      - name: Create a project to mutate
+        run: |
+          mix new "$RUNNER_TEMP/calc"
+          cd "$RUNNER_TEMP/calc"
+
+          cat > lib/calc.ex <<'EOF'
+          defmodule Calc do
+            def add(a, b), do: a + b
+            def multiply(a, b), do: a * b
+            def positive?(n), do: n > 0
+          end
+          EOF
+
+          cat > test/calc_test.exs <<'EOF'
+          defmodule CalcTest do
+            use ExUnit.Case
+
+            test "add/2 adds" do
+              assert Calc.add(2, 3) == 5
+              assert Calc.add(-1, 1) == 0
+            end
+
+            test "multiply/2 multiplies" do
+              assert Calc.multiply(2, 3) == 6
+            end
+
+            test "positive?/1" do
+              assert Calc.positive?(5)
+              refute Calc.positive?(-5)
+            end
+          end
+          EOF
+
+      - name: --version and --help work without a project
+        run: |
+          ./muex --version
+          ./muex --help
+
+      - name: Runs mutation testing in a project
+        # The bug this workflow guards against: Mix.start/0 is undefined, then
+        # "Could not find a Mix.Project". Reaching a score means Mix started,
+        # mix.exs was evaluated and the tests ran.
+        working-directory: ${{runner.temp}}/calc
+        run: |
+          "$GITHUB_WORKSPACE/muex" \
+            --files lib/calc.ex \
+            --mutators arithmetic,comparison \
+            --no-filter --no-optimize --no-tce \
+            | tee "$RUNNER_TEMP/out.txt"
+
+          grep -q "Total mutants" "$RUNNER_TEMP/out.txt"
+          grep -qE "Mutation Score" "$RUNNER_TEMP/out.txt"
+          # The suite covers add/2 and multiply/2, so their mutants must die.
+          grep -qE "Killed:.*[1-9]" "$RUNNER_TEMP/out.txt"
+
+      - name: Refuses a threshold it does not meet
+        # A non-zero exit proves the run reached a score rather than failing
+        # earlier with a stack trace.
+        working-directory: ${{runner.temp}}/calc
+        run: |
+          set +e
+          "$GITHUB_WORKSPACE/muex" \
+            --files lib/calc.ex \
+            --mutators arithmetic,comparison \
+            --no-filter --no-optimize --no-tce \
+            --fail-at 100 > "$RUNNER_TEMP/fail.txt" 2>&1
+          status=$?
+          set -e
+
+          cat "$RUNNER_TEMP/fail.txt"
+          test "$status" -eq 1
+          grep -q "below threshold" "$RUNNER_TEMP/fail.txt"
+
+      - name: Reports a missing project
+        working-directory: ${{runner.temp}}
+        run: |
+          set +e
+          "$GITHUB_WORKSPACE/muex" > "$RUNNER_TEMP/noproj.txt" 2>&1
+          status=$?
+          set -e
+
+          cat "$RUNNER_TEMP/noproj.txt"
+          test "$status" -eq 1
+          grep -q "No mix.exs found" "$RUNNER_TEMP/noproj.txt"

@@ -66,6 +66,20 @@ muex --optimize --fail-at 80
 - Works in any Elixir project
 - Fast startup
 
+### Requirements
+
+The escript embeds Elixir but **not** Mix. At startup it loads the Mix that
+belongs to the `elixir` executable on your `PATH`, then evaluates your
+project's `mix.exs` — the same file `mix muex` would read. Two consequences:
+
+- Elixir must be installed and its `bin` directory on `PATH`. The escript does
+  not have to be built with the same Elixir version as your project.
+- Your project's `mix.exs` may use any option it likes; it is evaluated, not
+  parsed.
+
+If Mix cannot be found, the escript says so and exits instead of failing with a
+`Mix.start/0 is undefined` stack trace.
+
 ### Limitations
 
 - Requires the target project to have Mix and dependencies compiled
@@ -178,6 +192,19 @@ The escript must be run from the root of an Elixir project. Navigate to your pro
 ```bash
 cd /path/to/your/elixir/project
 muex
+```
+
+The escript looks for `mix.exs` in the working directory and each directory
+above it, as `mix` does.
+
+### Escript: "Mix is not available"
+
+The escript does not embed Mix; it loads the Mix of the `elixir` executable on
+your `PATH`. Install Elixir, or put its `bin` directory on `PATH`:
+
+```bash
+which elixir   # must print a path
+muex --version
 ```
 
 ### Hex archive: "The task muex could not be found"

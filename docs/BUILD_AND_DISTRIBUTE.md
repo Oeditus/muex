@@ -72,6 +72,14 @@ Key settings:
 - `embed_elixir: true` - Include Elixir runtime (larger but portable)
 - `app: nil` - Don't start the application automatically
 
+Mix is deliberately **not** embedded. Mix evaluates the `mix.exs` of the
+project it runs in, so it must be that project's Elixir version rather than the
+one muex was built with. `Muex.MixBootstrap` starts the Mix that belongs to the
+`elixir` on `PATH` and then evaluates the project's `mix.exs`, which is how
+`muex` and `mix muex` end up seeing the same project. The `Escript` workflow
+(`.github/workflows/escript.yml`) builds the escript and runs it against a real
+project, and fails if Mix ever ends up embedded.
+
 ## Installation
 
 ### Escript Installation
@@ -281,7 +289,10 @@ For detailed release instructions, see [RELEASING.md](RELEASING.md).
 ### Escript Issues
 
 **Problem**: "No mix.exs found"
-- **Solution**: The escript must be run from a project directory containing mix.exs
+- **Solution**: The escript must be run from a project directory containing mix.exs, or one of its subdirectories
+
+**Problem**: "Mix is not available"
+- **Solution**: The escript loads Mix from the `elixir` executable on `PATH`; install Elixir or fix `PATH`
 
 **Problem**: "Permission denied"
 - **Solution**: Make the file executable: `chmod +x muex`

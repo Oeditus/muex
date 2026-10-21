@@ -4,6 +4,10 @@ defmodule Muex.CLI do
 
   This module provides the escript entry point. It parses arguments via
   `Muex.Config.from_args/1` and delegates execution to `Muex.run/1`.
+
+  The escript carries Elixir but not Mix, and nothing has loaded the project it
+  is run in. `Muex.MixBootstrap` starts Mix and evaluates the project's
+  `mix.exs` first, so `muex` and `mix muex` see the same project.
   """
 
   @spec main([String.t()]) :: no_return()
@@ -41,44 +45,51 @@ defmodule Muex.CLI do
         System.halt(1)
 
       {:ok, config} ->
-        unless File.exists?("mix.exs") do
-          IO.puts(:stderr, "Error: No mix.exs found in current directory")
-          IO.puts(:stderr, "Please run muex from the root of an Elixir project")
+        case Muex.MixBootstrap.load_project() do
+          :ok ->
+            run(config)
+
+          {:error, reason} ->
+            IO.puts(:stderr, "Error: #{Muex.MixBootstrap.format_error(reason)}")
+            System.halt(1)
+        end
+    end
+  rescue
+    e ->
+      IO.puts(:stderr, "Error: #{Exception.message(e)}")
+      IO.puts(:stderr, Exception.format_stacktrace(__STACKTRACE__))
+      System.halt(1)
+  end
+
+  @spec run(Muex.Config.t()) :: no_return()
+  defp run(config) do
+    case Muex.run(config) do
+      {:ok, %{results: []}} ->
+        # No mutations were generated (e.g. --since with no mutable changes).
+        # There is nothing to score, so the run passes the gate.
+        IO.puts("No mutations to test; nothing to score.")
+        System.halt(0)
+
+      {:ok, %{score_low: score_low, score_high: score_high}} ->
+        if score_low < config.fail_at do
+          score_str =
+            if score_low == score_high,
+              do: "#{score_low}%",
+              else: "#{score_low}%..#{score_high}%"
+
+          IO.puts(
+            :stderr,
+            "Mutation score #{score_str} is below threshold #{config.fail_at}%"
+          )
+
           System.halt(1)
         end
 
-        Mix.start()
-        Mix.Task.run("loadpaths")
-        Mix.Task.run("compile", ["--no-deps-check"])
+        System.halt(0)
 
-        case Muex.run(config) do
-          {:ok, %{results: []}} ->
-            # No mutations were generated (e.g. --since with no mutable changes).
-            # There is nothing to score, so the run passes the gate.
-            IO.puts("No mutations to test; nothing to score.")
-            System.halt(0)
-
-          {:ok, %{score_low: score_low, score_high: score_high}} ->
-            if score_low < config.fail_at do
-              score_str =
-                if score_low == score_high,
-                  do: "#{score_low}%",
-                  else: "#{score_low}%..#{score_high}%"
-
-              IO.puts(
-                :stderr,
-                "Mutation score #{score_str} is below threshold #{config.fail_at}%"
-              )
-
-              System.halt(1)
-            end
-
-            System.halt(0)
-
-          {:error, reason} ->
-            IO.puts(:stderr, "Error: #{reason}")
-            System.halt(1)
-        end
+      {:error, reason} ->
+        IO.puts(:stderr, "Error: #{reason}")
+        System.halt(1)
     end
   rescue
     e ->
