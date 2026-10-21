@@ -561,3 +561,19 @@ defmodule Muex.ConfigMirrorTest do
     assert msg =~ "lib"
   end
 end
+
+defmodule Muex.ConfigUnloadedAppTest do
+  use ExUnit.Case, async: false
+
+  alias Muex.Config
+
+  # `mix archive.install hex muex` runs the task without loading the :muex
+  # application, so its module list is not available.
+  test "built-in mutators are found when the :muex application is not loaded" do
+    :ok = Application.stop(:muex)
+    :ok = Application.unload(:muex)
+    on_exit(fn -> {:ok, _} = Application.ensure_all_started(:muex) end)
+
+    assert Muex.Mutator.Arithmetic in Config.all_mutators()
+  end
+end

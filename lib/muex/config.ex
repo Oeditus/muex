@@ -401,6 +401,10 @@ defmodule Muex.Config do
   end
 
   defp discover_mutators(app) do
+    # Installed as a Mix archive, muex runs without its application being
+    # loaded, and get_key/2 returns :undefined.
+    _ = Application.load(app)
+
     case :application.get_key(app, :modules) do
       {:ok, modules} -> Enum.filter(modules, &mutator?/1)
       :undefined -> []
