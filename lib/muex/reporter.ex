@@ -17,6 +17,20 @@ defmodule Muex.Reporter do
   @cyan "\e[36m"
   @gray "\e[90m"
 
+  @typedoc """
+  Marks a run that stopped starting mutants at its `--deadline-minutes`:
+  `mutations_run` of `mutations_total` mutants that needed a test run were run.
+  Mutants judged equivalent before the run are results but are in neither count.
+  """
+  @type partial :: %{mutations_run: non_neg_integer(), mutations_total: non_neg_integer()}
+
+  @doc """
+  The sentence that marks a partial run, for the terminal (stderr) and HTML.
+  """
+  @spec partial_text(partial()) :: String.t()
+  def partial_text(%{mutations_run: run, mutations_total: total}),
+    do: "PARTIAL: #{run} of #{total} mutants run (deadline reached)"
+
   @doc """
   Prints a summary of mutation testing results.
 

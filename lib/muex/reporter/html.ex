@@ -22,12 +22,12 @@ defmodule Muex.Reporter.Html do
   def generate(results, opts \\ []) do
     output_file = Keyword.get(opts, :output_file, "muex-report.html")
 
-    html = build_html(results)
+    html = build_html(results, Keyword.get(opts, :partial))
 
     File.write(output_file, html)
   end
 
-  defp build_html(results) do
+  defp build_html(results, partial) do
     total = length(results)
     killed = Enum.count(results, &(&1.result == :killed))
     survived = Enum.count(results, &(&1.result == :survived))
@@ -100,6 +100,12 @@ defmodule Muex.Reporter.Html do
           color: white;
           border: none;
           font-size: 1.2em;
+        }
+        .partial {
+          background: #fff4e6;
+          border-left: 4px solid #f39c12;
+          padding: 12px 20px;
+          margin-bottom: 20px;
         }
         .summary-number {
           font-size: 2.5em;
@@ -208,7 +214,8 @@ defmodule Muex.Reporter.Html do
     <body>
       <div class="container">
         <h1>Muex Mutation Testing Report</h1>
-        
+        #{partial_banner(partial)}
+
         <div class="summary">
           <div class="summary-card total">
             <div class="summary-label">Total Mutants</div>
@@ -267,7 +274,7 @@ defmodule Muex.Reporter.Html do
           filterBtns.forEach(btn => {
             btn.addEventListener('click', function() {
               const filter = this.dataset.filter;
-              
+
               filterBtns.forEach(b => b.classList.remove('active'));
               this.classList.add('active');
 
@@ -344,4 +351,9 @@ defmodule Muex.Reporter.Html do
   end
 
   defp escape_html(text), do: text
+
+  defp partial_banner(nil), do: ""
+
+  defp partial_banner(partial),
+    do: ~s(<p class="partial"><strong>#{Muex.Reporter.partial_text(partial)}</strong></p>)
 end

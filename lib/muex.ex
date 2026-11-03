@@ -301,6 +301,7 @@ defmodule Muex do
         file_to_module,
         max_workers: config.concurrency,
         timeout_ms: config.timeout_ms,
+        deadline_ms: Muex.Config.deadline_ms(config),
         verbose: config.verbose,
         test_paths: abs_test_paths,
         project_root: config.project_root,
@@ -325,6 +326,10 @@ defmodule Muex do
   end
 
   defp with_equivalents({:error, _reason} = err, _equivalent_results), do: err
+
+  defp with_equivalents({:partial, results, partial}, equivalent_results),
+    do: {:partial, results ++ equivalent_results, partial}
+
   defp with_equivalents(results, equivalent_results), do: results ++ equivalent_results
 
   # The worker pool answers {:error, reason} when it refused the run before any
@@ -332,12 +337,27 @@ defmodule Muex do
   # the mutants is broken. Nothing is scored.
   defp report({:error, _reason} = err, _config), do: err
 
+  # The deadline stopped the run: score and report the mutants that ran, marked
+  # partial so no reader takes the score for the whole module's.
+  defp report({:partial, results, partial}, config) do
+    case output_report(results, config, partial) do
+      {:error, _} = err ->
+        err
+
+      _ ->
+        warn(Muex.Reporter.partial_text(partial))
+        results |> build_result() |> put_partial(partial)
+    end
+  end
+
   defp report(results, config) do
     case output_report(results, config) do
       {:error, _} = err -> err
       _ -> build_result(results)
     end
   end
+
+  defp put_partial({:ok, result}, partial), do: {:ok, Map.put(result, :partial, partial)}
 
   defp build_result(results) do
     killed = Enum.count(results, &(&1.result == :killed))
@@ -362,38 +382,46 @@ defmodule Muex do
     {:ok, %{results: results, score_low: score_low, score_high: score_high}}
   end
 
-  defp output_report(results, %Muex.Config{format: "json", output: nil}) do
-    log(JsonReporter.to_json(results))
+  # `partial` is nil for a complete run, and the reporters then write what they
+  # always did.
+  defp output_report(results, config, partial \\ nil)
+
+  defp output_report(results, %Muex.Config{format: "json", output: nil}, partial) do
+    log(JsonReporter.to_json(results, partial: partial))
   end
 
-  defp output_report(results, %Muex.Config{format: "json", output: path}) do
-    write_report(results, JsonReporter, path)
+  defp output_report(results, %Muex.Config{format: "json", output: path}, partial) do
+    write_report(results, JsonReporter, path, partial)
   end
 
-  defp output_report(results, %Muex.Config{format: "html", output: nil, verbose: verbose}) do
-    case HtmlReporter.generate(results) do
+  defp output_report(
+         results,
+         %Muex.Config{format: "html", output: nil, verbose: verbose},
+         partial
+       ) do
+    case HtmlReporter.generate(results, partial: partial) do
       :ok -> log("HTML report generated: muex-report.html", verbose)
       {:error, reason} -> {:error, report_error("muex-report.html", reason)}
     end
   end
 
-  defp output_report(results, %Muex.Config{format: "html", output: path}) do
-    write_report(results, HtmlReporter, path)
+  defp output_report(results, %Muex.Config{format: "html", output: path}, partial) do
+    write_report(results, HtmlReporter, path, partial)
   end
 
-  defp output_report(results, %Muex.Config{format: "terminal"}) do
+  defp output_report(results, %Muex.Config{format: "terminal"}, _partial) do
     Muex.Reporter.print_summary(results)
   end
 
-  defp output_report(_results, %Muex.Config{format: other}) do
+  defp output_report(_results, %Muex.Config{format: other}, _partial) do
     {:error, "Unknown format: #{other}. Use terminal, json, or html"}
   end
 
   # With --output the report goes to the file and the terminal gets one line, so
   # a long run's results are read from the file rather than scrolled past.
-  defp write_report(results, reporter, path) do
+  defp write_report(results, reporter, path, partial) do
     with :ok <- File.mkdir_p(Path.dirname(path)),
-         :ok <- reporter.generate(results, output_file: path) do
+         :ok <- reporter.generate(results, output_file: path, partial: partial) do
       log("#{Muex.Reporter.summary_line(results)}. Report: #{path}")
     else
       {:error, reason} -> {:error, report_error(path, reason)}
@@ -426,6 +454,16 @@ defmodule Muex do
 
       %{file | path: relative_path}
     end)
+  end
+
+  # On stderr, so a partial run is flagged whatever the format, and `--format
+  # json` on stdout stays parseable.
+  defp warn(msg) do
+    if Code.ensure_loaded?(Mix) and function_exported?(Mix, :shell, 0) do
+      Mix.shell().error(msg)
+    else
+      IO.puts(:stderr, msg)
+    end
   end
 
   defp log(msg, verbose \\ true) do

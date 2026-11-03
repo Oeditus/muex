@@ -19,6 +19,9 @@ defmodule Muex.Reporter.Json do
     - `results` - List of mutation results
     - `opts` - Options:
       - `:output_file` - Path to output file (default: "muex-report.json")
+      - `:partial` - `%{mutations_run: n, mutations_total: m}` when the run hit
+        its deadline; adds `partial: true`, `mutations_run` and `mutations_total`
+        to the summary. Absent otherwise, so a complete report is unchanged.
 
   ## Returns
 
@@ -28,7 +31,7 @@ defmodule Muex.Reporter.Json do
   def generate(results, opts \\ []) do
     output_file = Keyword.get(opts, :output_file, "muex-report.json")
 
-    report = build_report(results)
+    report = build_report(results, opts)
     json = Jason.encode!(report, pretty: true)
 
     File.write(output_file, json)
@@ -40,18 +43,19 @@ defmodule Muex.Reporter.Json do
   ## Parameters
 
     - `results` - List of mutation results
+    - `opts` - As for `generate/2` (`:partial`)
 
   ## Returns
 
     JSON string
   """
-  @spec to_json([map()]) :: String.t()
-  def to_json(results) do
-    report = build_report(results)
+  @spec to_json([map()], keyword()) :: String.t()
+  def to_json(results, opts \\ []) do
+    report = build_report(results, opts)
     Jason.encode!(report, pretty: true)
   end
 
-  defp build_report(results) do
+  defp build_report(results, opts) do
     total = length(results)
     killed = Enum.count(results, &(&1.result == :killed))
     survived = Enum.count(results, &(&1.result == :survived))
@@ -69,21 +73,28 @@ defmodule Muex.Reporter.Json do
         {0.0, 0.0}
       end
 
+    summary = %{
+      total: total,
+      killed: killed,
+      survived: survived,
+      invalid: invalid,
+      timeout: timeout,
+      equivalent: equivalent,
+      no_coverage: no_coverage,
+      mutation_score_low: score_low,
+      mutation_score_high: score_high
+    }
+
     %{
-      summary: %{
-        total: total,
-        killed: killed,
-        survived: survived,
-        invalid: invalid,
-        timeout: timeout,
-        equivalent: equivalent,
-        no_coverage: no_coverage,
-        mutation_score_low: score_low,
-        mutation_score_high: score_high
-      },
+      summary: Map.merge(summary, partial_summary(Keyword.get(opts, :partial))),
       mutations: Enum.map(results, &format_mutation/1)
     }
   end
+
+  defp partial_summary(nil), do: %{}
+
+  defp partial_summary(%{mutations_run: run, mutations_total: total}),
+    do: %{partial: true, mutations_run: run, mutations_total: total}
 
   defp format_mutation(result) do
     mutation = result.mutation

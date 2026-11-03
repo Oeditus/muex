@@ -157,6 +157,35 @@ defmodule Muex.Reporter.JsonTest do
     end
   end
 
+  describe "to_json/2 with a partial run" do
+    @partial %{mutations_run: 14, mutations_total: 30}
+
+    test "marks the summary and counts the mutants run" do
+      report = [killed_result()] |> Json.to_json(partial: @partial) |> Jason.decode!()
+
+      assert %{"partial" => true, "mutations_run" => 14, "mutations_total" => 30} =
+               report["summary"]
+
+      assert report["summary"]["total"] == 1
+    end
+
+    test "leaves the summary as it was without a partial marker" do
+      summary = [killed_result()] |> Json.to_json() |> Jason.decode!() |> Map.fetch!("summary")
+
+      assert summary |> Map.keys() |> Enum.sort() ==
+               ~w(equivalent invalid killed mutation_score_high mutation_score_low
+                  no_coverage survived timeout total)
+    end
+
+    test "generate/2 writes the marker to the file", %{tmp_dir: tmp_dir} do
+      output_file = Path.join(tmp_dir, "partial.json")
+
+      assert :ok = Json.generate([killed_result()], output_file: output_file, partial: @partial)
+
+      assert %{"summary" => %{"partial" => true}} = output_file |> File.read!() |> Jason.decode!()
+    end
+  end
+
   describe "generate/2" do
     test "writes JSON to file", %{tmp_dir: tmp_dir} do
       output_file = Path.join(tmp_dir, "report.json")
@@ -195,6 +224,10 @@ defmodule Muex.Reporter.JsonTest do
         assert File.exists?("muex-report.json")
       end)
     end
+  end
+
+  defp killed_result do
+    %{result: :killed, mutation: test_mutation("lib/foo.ex", 1), duration_ms: 1, error: nil}
   end
 
   defp test_mutation(file, line) do

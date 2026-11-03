@@ -134,6 +134,13 @@ defmodule Muex.ReporterTest do
     end
   end
 
+  describe "partial_text/1" do
+    test "says how many of the mutants ran" do
+      assert Reporter.partial_text(%{mutations_run: 14, mutations_total: 30}) ==
+               "PARTIAL: 14 of 30 mutants run (deadline reached)"
+    end
+  end
+
   describe "summary_line/1" do
     test "gives the score and the scored counts on one line" do
       results = [

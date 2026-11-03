@@ -61,7 +61,9 @@ defmodule Muex.WorkerPool do
             file_to_module: map(),
             sandboxes: list(),
             available_sandboxes: :queue.queue(),
-            stop_reason: String.t() | nil
+            stop_reason: String.t() | nil,
+            deadline_ref: reference() | nil,
+            dropped_mutations: non_neg_integer()
           }
 
     defstruct [
@@ -96,7 +98,11 @@ defmodule Muex.WorkerPool do
       # Queue of available sandbox indices
       available_sandboxes: :queue.new(),
       # Why the run stopped early (see worker_result/5); nil while it runs
-      stop_reason: nil
+      stop_reason: nil,
+      # Deadline (`:deadline_ms` option): the tag of the pending {:deadline, ref}
+      # message, and how many queued mutants it dropped
+      deadline_ref: nil,
+      dropped_mutations: 0
     ]
   end
 
@@ -144,9 +150,17 @@ defmodule Muex.WorkerPool do
     - `file_to_module` - Map of file paths to module names
     - `opts` - Options including `:timeout_ms`, `:test_paths`, `:verbose`
 
+  With a `:deadline_ms` option, a timer starts when the pool starts running
+  mutants (after sandbox setup and the baseline). When it fires the mutants not
+  yet started are dropped, those already running finish (each bounded by
+  `:timeout_ms`), and the reply carries the results so far. A deadline that
+  fires after every mutant has started changes nothing.
+
   ## Returns
 
-    List of mutation results.
+    List of mutation results; `{:partial, results, info}` when a deadline
+    dropped mutants that had not started, where `info` is
+    `%{mutations_run: n, mutations_total: m}`; or `{:error, reason}`.
   """
   @spec run_mutations(
           pid(),
@@ -156,7 +170,7 @@ defmodule Muex.WorkerPool do
           map(),
           map(),
           keyword()
-        ) :: [map()] | {:error, String.t()}
+        ) :: [map()] | {:partial, [map()], Muex.Reporter.partial()} | {:error, String.t()}
   def run_mutations(
         pool,
         mutations,
@@ -205,12 +219,14 @@ defmodule Muex.WorkerPool do
       mirror = Keyword.get(opts, :mirror, [])
 
       # Group mutations by file path into per-file queues
-      pending_by_file =
+      grouped =
         Enum.reduce(mutations, %{}, fn mutation, acc ->
           file_path = mutation.location.file
           queue = Map.get(acc, file_path, :queue.new())
           Map.put(acc, file_path, :queue.in(mutation, queue))
         end)
+
+      pending_by_file = spread(grouped, Keyword.get(opts, :deadline_ms))
 
       prepared = %{
         state
@@ -229,7 +245,9 @@ defmodule Muex.WorkerPool do
           locked_files: MapSet.new(),
           active_workers: %{},
           monitor_to_worker: %{},
-          stop_reason: nil
+          stop_reason: nil,
+          deadline_ref: nil,
+          dropped_mutations: 0
       }
 
       # Refuse, before any sandbox exists, a target the sandbox would share
@@ -263,7 +281,7 @@ defmodule Muex.WorkerPool do
           reraise e, __STACKTRACE__
       end
 
-      {:noreply, schedule_workers(new_state)}
+      {:noreply, new_state |> start_deadline_timer() |> schedule_workers()}
     end
   rescue
     # A run that cannot give a trustworthy verdict ends with its reason
@@ -456,12 +474,72 @@ defmodule Muex.WorkerPool do
     end
   end
 
+  # The deadline: no mutant starts from here on. The queues of unstarted mutants
+  # are dropped and counted, and the run finishes once the active workers are
+  # idle. This is not a stop_reason: that is a broken run with nothing to score,
+  # while a deadline returns what was run. A stale or late tick (the run already
+  # finished, or a previous run's timer) is ignored.
+  @impl true
+  def handle_info({:deadline, ref}, %State{deadline_ref: ref, caller: caller} = state)
+      when not is_nil(ref) and not is_nil(caller) do
+    dropped = dropped_count(state.pending_by_file)
+
+    %{state | pending_by_file: %{}, dropped_mutations: dropped}
+    |> maybe_finish_or_schedule()
+  end
+
+  def handle_info({:deadline, _stale_ref}, state), do: {:noreply, state}
+
   # This process traps exits, and building an umbrella sandbox runs `cp` and
   # `mix compile` through System.cmd from inside handle_call/3. The port
   # System.cmd opens is linked to this process, so its normal close arrives
   # here as {:EXIT, port, :normal}. A normal exit is not news; anything else
   # still falls through and crashes.
   def handle_info({:EXIT, _from, :normal}, state), do: {:noreply, state}
+
+  # -- Deadline --
+
+  # Mutants are generated in source order. If a deadline ends the run before the
+  # queues are empty, the ones that ran would all be the top of each file and
+  # the score would describe only that. With a deadline each queue is shuffled
+  # with a fixed seed, so what runs is a uniform sample of the file, and the
+  # same run draws the same sample. Without a deadline the order is unchanged.
+  @doc false
+  @spec spread(%{Path.t() => :queue.queue(map())}, non_neg_integer() | nil) ::
+          %{Path.t() => :queue.queue(map())}
+  def spread(pending_by_file, nil), do: pending_by_file
+
+  def spread(pending_by_file, _deadline_ms) do
+    Map.new(pending_by_file, fn {file_path, queue} -> {file_path, shuffle(queue)} end)
+  end
+
+  defp shuffle(queue) do
+    {keyed, _rand_state} =
+      queue
+      |> :queue.to_list()
+      |> Enum.map_reduce(:rand.seed_s(:exsss, 0), fn mutation, rand_state ->
+        {key, rand_state} = :rand.uniform_s(rand_state)
+        {{key, mutation}, rand_state}
+      end)
+
+    keyed |> Enum.sort_by(&elem(&1, 0)) |> Enum.map(&elem(&1, 1)) |> :queue.from_list()
+  end
+
+  defp start_deadline_timer(state) do
+    case Keyword.get(state.opts, :deadline_ms) do
+      nil ->
+        state
+
+      ms when is_integer(ms) and ms >= 0 ->
+        ref = make_ref()
+        Process.send_after(self(), {:deadline, ref}, ms)
+        %{state | deadline_ref: ref}
+    end
+  end
+
+  defp dropped_count(pending_by_file) do
+    pending_by_file |> Map.values() |> Enum.map(&:queue.len/1) |> Enum.sum()
+  end
 
   # -- Scheduling --
 
@@ -588,7 +666,7 @@ defmodule Muex.WorkerPool do
         finish(state, {:error, state.stop_reason})
 
       idle and all_queues_empty?(state.pending_by_file) ->
-        finish(state, Enum.reverse(state.results))
+        finish(state, completed_reply(state))
 
       state.stop_reason != nil ->
         {:noreply, state}
@@ -597,6 +675,15 @@ defmodule Muex.WorkerPool do
         {:noreply, schedule_workers(state)}
     end
   end
+
+  # A deadline that dropped nothing (every mutant had already started) leaves a
+  # complete run, replied exactly as one without a deadline.
+  defp completed_reply(%State{dropped_mutations: dropped} = state) when dropped > 0 do
+    results = Enum.reverse(state.results)
+    {:partial, results, %{mutations_run: length(results), mutations_total: state.total_mutations}}
+  end
+
+  defp completed_reply(state), do: Enum.reverse(state.results)
 
   defp finish(state, reply) do
     Sandbox.cleanup(state.sandboxes)

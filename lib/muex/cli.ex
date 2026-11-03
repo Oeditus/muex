@@ -115,6 +115,7 @@ defmodule Muex.CLI do
         --mutator-paths <dirs>      Comma-separated dirs with custom mutators
         --concurrency <n>           Parallel mutations (default: CPU cores)
         --timeout <ms>              Test timeout in milliseconds (default: 10000)
+        --deadline-minutes <min>    Stop starting mutants after this long; report what ran (default: none)
         --fail-at <score>           Minimum mutation score to pass (default: 80)
         --format <type>             Output format: terminal, json, html (default: terminal)
         --output <file>             Write the json or html report to a file, print a summary line

@@ -31,15 +31,20 @@ defmodule Muex.Runner do
       - `:timeout_ms` - Test timeout in milliseconds (default: 5000)
       - `:test_paths` - List of test path patterns (default: ["test"])
       - `:verbose` - Show progress (default: false)
+      - `:deadline_ms` - Stop starting mutants this many milliseconds after the
+        first one starts; see `Muex.WorkerPool.run_mutations/7` (default: none)
 
   ## Returns
 
-    List of `mutation_result` maps, or `{:error, reason}` when the run was
-    refused before any mutant ran (see `Muex.Sandbox.Error`) or stopped because
-    something outside the mutants is broken.
+    List of `mutation_result` maps. `{:partial, results, info}` when a
+    `:deadline_ms` stopped the run before every mutant started. `{:error, reason}`
+    when the run was refused before any mutant ran (see `Muex.Sandbox.Error`) or
+    stopped because something outside the mutants is broken.
   """
   @spec run_all([map()], %{Path.t() => map()}, module(), map(), map(), keyword()) ::
-          [mutation_result()] | {:error, String.t()}
+          [mutation_result()]
+          | {:partial, [mutation_result()], Muex.Reporter.partial()}
+          | {:error, String.t()}
   def run_all(
         mutations,
         file_entries,

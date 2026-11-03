@@ -143,6 +143,9 @@ mix muex --mutators arithmetic,comparison,boolean
 # Set concurrency and timeout
 mix muex --concurrency 4 --timeout 10000
 
+# Stop starting mutants after 7.5 minutes and report the ones that ran
+mix muex --deadline-minutes 7.5
+
 # Fail if mutation score below threshold
 mix muex --fail-at 80
 

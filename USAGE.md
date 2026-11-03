@@ -326,6 +326,38 @@ mix muex --timeout 30000
 
 Default: 5000ms (5 seconds)
 
+### Stop After a Time Budget
+
+A file's report is written only once all of its mutants have run, so a CI job
+killed at its time limit keeps nothing. `--deadline-minutes` ends the run
+cleanly instead:
+
+```bash
+# Start no new mutants after 7.5 minutes; report the ones that ran
+mix muex --deadline-minutes 7.5 --format json --output muex-report.json
+```
+
+- The clock starts when the first mutant starts, after sandboxes are built and
+  the baseline run has passed, so allow for that setup in the job's own limit.
+- Mutants already running finish (each is bounded by `--timeout`), so the run
+  ends up to `--timeout` after the deadline.
+- If the deadline stopped any mutant from starting, the result is *partial*. It
+  says so on stderr (`PARTIAL: 14 of 30 mutants run (deadline reached)`), the
+  JSON `summary` gains `"partial": true`, `"mutations_run"` and
+  `"mutations_total"`, and the HTML report shows a banner. A run that had
+  started every mutant by the deadline is complete and carries none of these.
+- A partial report counts only the mutants that ran. With a deadline the
+  mutants of each file are run in a fixed pseudo-random order, so they are a
+  sample of the file rather than its first lines, but the score is still a
+  sample: do not compare it with a complete run's. `mutations_total` is the
+  number of mutants that needed a test run; mutants judged equivalent beforehand
+  are in `total` but in neither count.
+- `--fail-at` applies to the score of the mutants that ran, as it does to any
+  score, so a partial run can fail the threshold. It can also pass: check
+  `partial` in the JSON report when a passing exit status must mean a complete
+  run. A partial run in which no mutant gave a score has a score of 0, so it fails any
+  positive `--fail-at`.
+
 ### Enforce Minimum Mutation Score
 
 Fail CI builds if score is too low:
@@ -795,7 +827,9 @@ mix muex --format json --output muex-report.json  # writes it to a file
 ```
 
 With `--output`, the terminal gets a one-line summary instead of the report.
-The report looks like this:
+The report looks like this (`summary` also has `"partial": true`,
+`"mutations_run"` and `"mutations_total"` when `--deadline-minutes` stopped the
+run early):
 
 ```json
 {
@@ -1029,22 +1063,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      
+
       - name: Set up Elixir
         uses: erlef/setup-beam@v1
         with:
           elixir-version: '1.16'
           otp-version: '26'
-      
+
       - name: Install dependencies
         run: mix deps.get
-      
+
       - name: Run tests
         run: mix test
-      
+
       - name: Run mutation testing
         run: mix muex --fail-at 80 --format json --output muex-report.json
-      
+
       - name: Upload mutation report
         uses: actions/upload-artifact@v2
         with:
