@@ -115,6 +115,50 @@ defmodule Muex.ReportOutputTest do
     refute File.exists?(report_path)
   end
 
+  describe "--deadline-minutes" do
+    # A deadline of a millisecond has passed by the time the first mutant has
+    # started, so one of the four mutants runs and the other three are dropped.
+    test "a run cut short reports the mutants that ran as partial", %{tmp_dir: tmp_dir} do
+      project = write_tiny_project!(tmp_dir)
+      report_path = Path.join(tmp_dir, "muex.json")
+
+      {result, stderr} =
+        run_capturing(config!(project, "json", report_path, deadline_minutes: 1.0e-5))
+
+      assert {:ok, %{results: [_], partial: partial}} = result
+      assert partial == %{mutations_run: 1, mutations_total: 4}
+      assert stderr =~ "PARTIAL: 1 of 4 mutants run (deadline reached)"
+
+      summary = report_path |> File.read!() |> Jason.decode!() |> Map.fetch!("summary")
+      assert %{"partial" => true, "mutations_run" => 1, "mutations_total" => 4} = summary
+      assert summary["total"] == 1
+    end
+
+    test "a deadline that is not reached leaves the run complete", %{tmp_dir: tmp_dir} do
+      project = write_tiny_project!(tmp_dir)
+      report_path = Path.join(tmp_dir, "muex.json")
+
+      {result, stderr} =
+        run_capturing(config!(project, "json", report_path, deadline_minutes: 30))
+
+      assert {:ok, %{results: results} = run} = result
+      assert length(results) == 4
+      refute Map.has_key?(run, :partial)
+      assert stderr == ""
+
+      summary = report_path |> File.read!() |> Jason.decode!() |> Map.fetch!("summary")
+      refute Map.has_key?(summary, "partial")
+    end
+  end
+
+  # Muex.run/1 with stdout swallowed; returns its result and what it wrote to stderr.
+  defp run_capturing(config) do
+    with_io(:stderr, fn ->
+      {result, _stdout} = with_io(fn -> Muex.run(config) end)
+      result
+    end)
+  end
+
   defp config!(project, format, output, extra \\ []) do
     opts =
       [

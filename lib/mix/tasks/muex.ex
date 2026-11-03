@@ -17,6 +17,7 @@ defmodule Mix.Tasks.Muex do
     * `--mutators` - Comma-separated list of mutators (default: all)
     * `--concurrency` - Number of parallel mutations (default: number of schedulers)
     * `--timeout` - Test timeout in milliseconds (default: 10000)
+    * `--deadline-minutes` - Stop starting new mutants this many minutes after the first one starts (number, default: none). Running mutants finish; the report covers the mutants that ran and is marked partial
     * `--fail-at` - Minimum mutation score to pass (default: 80)
     * `--format` - Output format: terminal, json, html (default: terminal)
     * `--output` - Write the json or html report to this file and print a one-line summary
@@ -46,6 +47,7 @@ defmodule Mix.Tasks.Muex do
       mix muex --format json              # JSON output
       mix muex --format html              # HTML report
       mix muex --format json --output muex-report.json
+      mix muex --deadline-minutes 7.5     # Report whatever ran in 7.5 minutes
       mix muex --verbose                  # Detailed progress
       mix muex --optimize --optimize-level aggressive
       mix muex --app my_app               # Umbrella: specific app

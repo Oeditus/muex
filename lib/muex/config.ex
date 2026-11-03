@@ -47,6 +47,10 @@ defmodule Muex.Config do
       loaded at runtime.
     * `--concurrency` - Number of parallel workers (default: number of schedulers)
     * `--timeout` - Test timeout in milliseconds (default: 10000)
+    * `--deadline-minutes` - Stop starting new mutants this many minutes after the
+      first one starts (positive number, default: none). Mutants already running
+      finish, and the report covers the mutants that ran, marked partial. The
+      clock starts after sandbox setup and the baseline run.
     * `--fail-at` - Minimum mutation score percentage to pass (default: 80)
     * `--format` - Output format: `terminal`, `json`, `html` (default: `terminal`)
     * `--output` - Write the `json` or `html` report to this file and print a
@@ -103,6 +107,7 @@ defmodule Muex.Config do
           mutators: [module()],
           concurrency: pos_integer(),
           timeout_ms: pos_integer(),
+          deadline_minutes: float() | nil,
           fail_at: number(),
           format: String.t(),
           output: Path.t() | nil,
@@ -132,6 +137,7 @@ defmodule Muex.Config do
     :mutators,
     concurrency: 4,
     timeout_ms: 10_000,
+    deadline_minutes: nil,
     fail_at: 80,
     format: "terminal",
     output: nil,
@@ -162,6 +168,7 @@ defmodule Muex.Config do
                mutator_paths: :string,
                concurrency: :integer,
                timeout: :integer,
+               deadline_minutes: :float,
                fail_at: :integer,
                format: :string,
                output: :string,
@@ -211,7 +218,8 @@ defmodule Muex.Config do
            validate_optimize_level(Keyword.get(opts, :optimize_level, "balanced")),
          {:ok, format} <- validate_format(format),
          {:ok, output} <- validate_output(Keyword.get(opts, :output), format),
-         {:ok, mirror} <- validate_mirror(Keyword.get(opts, :mirror)) do
+         {:ok, mirror} <- validate_mirror(Keyword.get(opts, :mirror)),
+         {:ok, deadline_minutes} <- validate_deadline(Keyword.get(opts, :deadline_minutes)) do
       config = %__MODULE__{
         files: files,
         test_paths: resolve_test_paths(opts, app),
@@ -221,6 +229,7 @@ defmodule Muex.Config do
         mutators: mutators,
         concurrency: Keyword.get(opts, :concurrency, System.schedulers_online()),
         timeout_ms: Keyword.get(opts, :timeout, 10_000),
+        deadline_minutes: deadline_minutes,
         fail_at: Keyword.get(opts, :fail_at, 80),
         format: format,
         output: output,
@@ -244,6 +253,13 @@ defmodule Muex.Config do
       {:ok, config}
     end
   end
+
+  @doc """
+  The deadline in milliseconds, or `nil` when there is none.
+  """
+  @spec deadline_ms(t()) :: non_neg_integer() | nil
+  def deadline_ms(%__MODULE__{deadline_minutes: nil}), do: nil
+  def deadline_ms(%__MODULE__{deadline_minutes: minutes}), do: round(minutes * 60_000)
 
   @doc "Returns optimizer options derived from the config's optimization settings.\n"
   @spec optimizer_opts(t()) :: keyword()
@@ -456,6 +472,17 @@ defmodule Muex.Config do
         :error -> {:halt, {:error, "Unknown mutator: #{name}"}}
       end
     end)
+  end
+
+  # nil = no deadline. Otherwise a positive number of minutes; an integer from
+  # a keyword list is accepted (OptionParser gives floats) and normalized.
+  defp validate_deadline(nil), do: {:ok, nil}
+
+  defp validate_deadline(minutes) when is_number(minutes) and minutes > 0,
+    do: {:ok, minutes / 1}
+
+  defp validate_deadline(other) do
+    {:error, "Invalid --deadline-minutes: #{inspect(other)}. Use a positive number of minutes"}
   end
 
   defp validate_optimize_level(level) when level in ~w(conservative balanced aggressive) do

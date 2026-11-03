@@ -35,6 +35,27 @@ defmodule Muex.Reporter.HtmlTest do
     end
   end
 
+  describe "generate/2 with a partial run" do
+    test "shows a banner saying how many mutants ran", %{tmp_dir: tmp_dir} do
+      output_file = Path.join(tmp_dir, "report.html")
+      results = [%{result: :killed, mutation: test_mutation(), duration_ms: 0, error: nil}]
+      partial = %{mutations_run: 14, mutations_total: 30}
+
+      assert :ok = Html.generate(results, output_file: output_file, partial: partial)
+
+      assert File.read!(output_file) =~ "PARTIAL: 14 of 30 mutants run"
+    end
+
+    test "has no banner for a complete run", %{tmp_dir: tmp_dir} do
+      output_file = Path.join(tmp_dir, "report.html")
+      results = [%{result: :killed, mutation: test_mutation(), duration_ms: 0, error: nil}]
+
+      assert :ok = Html.generate(results, output_file: output_file)
+
+      refute File.read!(output_file) =~ "PARTIAL"
+    end
+  end
+
   defp test_mutation do
     %{
       mutator: Muex.Mutator.Arithmetic,

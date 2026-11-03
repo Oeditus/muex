@@ -213,6 +213,49 @@ defmodule Muex.ConfigTest do
     end
   end
 
+  describe "--deadline-minutes" do
+    test "defaults to no deadline" do
+      assert {:ok, %Config{deadline_minutes: nil}} = Config.from_args([])
+    end
+
+    test "parses a fractional number of minutes" do
+      assert {:ok, %Config{deadline_minutes: 7.5}} =
+               Config.from_args(["--deadline-minutes", "7.5"])
+    end
+
+    test "turns a whole number of minutes into a float" do
+      assert {:ok, %Config{deadline_minutes: 3.0}} = Config.from_args(["--deadline-minutes", "3"])
+    end
+
+    test "accepts an integer from from_opts/1" do
+      assert {:ok, %Config{deadline_minutes: 3.0}} = Config.from_opts(deadline_minutes: 3)
+    end
+
+    test "deadline_ms/1 converts minutes to milliseconds" do
+      assert {:ok, config} = Config.from_args(["--deadline-minutes", "7.5"])
+      assert Config.deadline_ms(config) == 450_000
+
+      assert {:ok, config} = Config.from_args([])
+      assert Config.deadline_ms(config) == nil
+    end
+
+    test "rejects zero and negative values" do
+      assert {:error, msg} = Config.from_args(["--deadline-minutes", "0"])
+      assert msg =~ "Invalid --deadline-minutes"
+
+      assert {:error, msg} = Config.from_args(["--deadline-minutes", "-2"])
+      assert msg =~ "Invalid --deadline-minutes"
+    end
+
+    test "rejects a value that is not a number" do
+      assert {:error, msg} = Config.from_args(["--deadline-minutes", "soon"])
+      assert msg =~ "Invalid options"
+
+      assert {:error, msg} = Config.from_opts(deadline_minutes: "soon")
+      assert msg =~ "Invalid --deadline-minutes"
+    end
+  end
+
   describe "--preset" do
     test "defaults to none with no skip calls" do
       assert {:ok, config} = Config.from_args([])

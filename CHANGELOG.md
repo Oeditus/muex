@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`--deadline-minutes <n>`**: Stops starting new mutants `n` minutes after the first one starts (after sandbox setup and the baseline run), lets the running ones finish, and reports the mutants that ran. A report used to be written only when every mutant had finished, so a CI job killed at its time limit kept nothing. If the deadline left mutants unstarted the run is partial: `PARTIAL: 14 of 30 mutants run (deadline reached)` on stderr, `"partial": true`, `"mutations_run"` and `"mutations_total"` in the JSON summary, a banner in the HTML report, and a `:partial` key in the `{:ok, result}` of `Muex.run/1`. A complete run, with or without a deadline, is unchanged. `--fail-at` applies to the score of the mutants that ran. With a deadline each file's mutants run in a fixed pseudo-random order, so a partial run samples the whole file instead of its first lines.
 - **`--output <file>`**: Writes the `json` or `html` report to the given file and prints a one-line summary in place of the report. Requires `--format json` or `--format html`. The path is checked before any mutant runs. Without it, `json` still prints to stdout and `html` still writes `muex-report.html`.
 - **Test Files**: Each result records the test files `mix test` was given for the mutant (`test_files` in the JSON report, "Test files" in the HTML report and under each survivor in the terminal). For a survivor these are the tests that ran and still passed.
 
