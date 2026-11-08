@@ -46,7 +46,7 @@ and decision_points include:
 - and, or, &&, ||
 ```
 
-So `a > b` to `a < b` is kept inside a function that branches and dropped inside a one-line function that does not. Each clause of a multi-clause function is measured on its own. A mutation outside any function, such as in a module attribute, is measured by the node it replaces.
+So `a > b` to `a < b` is kept inside a function that branches and dropped inside a one-line function that does not. Each clause of a multi-clause function is measured on its own. A mutation outside any function, such as in a module attribute, is measured by its replacement node, as before.
 
 **Configuration**:
 - `min_complexity: 2` (default) - Skip mutations in trivially simple code

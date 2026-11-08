@@ -280,17 +280,19 @@ defmodule Muex.MutantOptimizer do
   `:function_complexity`, and `filter_by_complexity/2` reads it.
   """
   @spec complexity(term()) :: pos_integer()
-  def complexity(ast), do: count_decision_points(ast) + 1
+  def complexity(ast), do: count_decision_points(ast, :into_pairs) + 1
 
-  # The complexity of the function the mutation is in. A mutation built
-  # without a walk has no function recorded, so the node it replaces is
-  # measured instead.
+  # The complexity of the function the mutation is in. A mutation outside any
+  # function, or built without a walk, has none recorded, so its replacement
+  # (`mutation.ast`) is measured the way it always was, without looking inside
+  # keyword pairs. Looking inside them there would measure a statement deleted
+  # from a module body by every function after it.
   defp estimate_complexity(%{function_complexity: complexity}) when is_integer(complexity),
     do: complexity
 
-  defp estimate_complexity(%{ast: ast}), do: complexity(ast)
+  defp estimate_complexity(%{ast: ast}), do: count_decision_points(ast, :skip_pairs) + 1
 
-  defp count_decision_points(ast) when is_tuple(ast) and tuple_size(ast) == 3 do
+  defp count_decision_points(ast, pairs) when is_tuple(ast) and tuple_size(ast) == 3 do
     {op, _, args} = ast
 
     current =
@@ -303,7 +305,7 @@ defmodule Muex.MutantOptimizer do
     children =
       args
       |> List.wrap()
-      |> Enum.map(&count_decision_points/1)
+      |> Enum.map(&count_decision_points(&1, pairs))
       |> Enum.sum()
 
     current + children
@@ -311,16 +313,16 @@ defmodule Muex.MutantOptimizer do
 
   # A keyword pair such as `do: body` or `else: other`, which is where the
   # body of a `def`, an `if` or a `fn` sits.
-  defp count_decision_points({left, right}),
-    do: count_decision_points(left) + count_decision_points(right)
+  defp count_decision_points({left, right}, :into_pairs),
+    do: count_decision_points(left, :into_pairs) + count_decision_points(right, :into_pairs)
 
-  defp count_decision_points(ast) when is_tuple(ast), do: 0
+  defp count_decision_points(ast, _pairs) when is_tuple(ast), do: 0
 
-  defp count_decision_points(list) when is_list(list) do
-    Enum.map(list, &count_decision_points/1) |> Enum.sum()
+  defp count_decision_points(list, pairs) when is_list(list) do
+    Enum.map(list, &count_decision_points(&1, pairs)) |> Enum.sum()
   end
 
-  defp count_decision_points(_), do: 0
+  defp count_decision_points(_, _pairs), do: 0
 
   defp group_by_function(mutations) do
     Enum.group_by(mutations, fn mutation ->
