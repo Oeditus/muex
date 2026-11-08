@@ -36,14 +36,17 @@ Our goal: Reduce mutants by 50-70% while maintaining comparable mutation scores.
 
 **Problem**: Simple code (getters, trivial guards) generates many mutations but is typically well-tested. Complex code with branching logic is more likely to contain subtle bugs.
 
-**Approach**: Calculate cyclomatic complexity approximation:
+**Approach**: Calculate a cyclomatic complexity approximation of the function each mutation is in:
 ```
-complexity = count_decision_points(ast) + 1
+complexity = count_decision_points(function) + 1
 
-where decision_points include:
+where function is the def, defp, defmacro or defmacrop clause around the mutation,
+and decision_points include:
 - if, case, cond, unless
 - and, or, &&, ||
 ```
+
+So `a > b` to `a < b` is kept inside a function that branches and dropped inside a one-line function that does not. Each clause of a multi-clause function is measured on its own. A mutation outside any function, such as in a module attribute, is measured by the node it replaces.
 
 **Configuration**:
 - `min_complexity: 2` (default) - Skip mutations in trivially simple code
@@ -227,7 +230,7 @@ If mutation score drops significantly (>5%), the test suite may be weak in compl
 The optimizer uses several Elixir AST analysis techniques:
 
 1. **Pattern Matching**: Detect equivalent patterns
-2. **AST Traversal**: Count decision points for complexity
+2. **AST Traversal**: Count decision points in each function for complexity (recorded on each mutation as `:function_complexity` by `Muex.Mutator.walk/3`)
 3. **Metadata Analysis**: Use line numbers, mutator types for grouping
 4. **Statistical Sampling**: Cluster and sample diverse representatives
 

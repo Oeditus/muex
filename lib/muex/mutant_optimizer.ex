@@ -272,10 +272,23 @@ defmodule Muex.MutantOptimizer do
 
   defp has_multiple_operations?(_), do: false
 
-  defp estimate_complexity(%{ast: ast}) do
-    # Calculate cyclomatic complexity approximation
-    count_decision_points(ast) + 1
-  end
+  @doc """
+  An approximation of the cyclomatic complexity of `ast`: one plus the number
+  of `if`, `case`, `cond`, `unless`, `and`, `or`, `&&` and `||` in it.
+
+  `Muex.Mutator.walk/3` records this for the function around each mutation as
+  `:function_complexity`, and `filter_by_complexity/2` reads it.
+  """
+  @spec complexity(term()) :: pos_integer()
+  def complexity(ast), do: count_decision_points(ast) + 1
+
+  # The complexity of the function the mutation is in. A mutation built
+  # without a walk has no function recorded, so the node it replaces is
+  # measured instead.
+  defp estimate_complexity(%{function_complexity: complexity}) when is_integer(complexity),
+    do: complexity
+
+  defp estimate_complexity(%{ast: ast}), do: complexity(ast)
 
   defp count_decision_points(ast) when is_tuple(ast) and tuple_size(ast) == 3 do
     {op, _, args} = ast
@@ -295,6 +308,11 @@ defmodule Muex.MutantOptimizer do
 
     current + children
   end
+
+  # A keyword pair such as `do: body` or `else: other`, which is where the
+  # body of a `def`, an `if` or a `fn` sits.
+  defp count_decision_points({left, right}),
+    do: count_decision_points(left) + count_decision_points(right)
 
   defp count_decision_points(ast) when is_tuple(ast), do: 0
 
