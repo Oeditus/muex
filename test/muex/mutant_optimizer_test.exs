@@ -66,6 +66,25 @@ defmodule Muex.MutantOptimizerTest do
 
       assert [^branching] = MutantOptimizer.filter_by_complexity([branching, plain], 2)
     end
+
+    test "a statement deleted outside any function is measured as before, not by the functions after it" do
+      mutations =
+        """
+        defmodule S do
+          alias Foo.Bar
+
+          def max(a, b) do
+            if a > b, do: a, else: b
+          end
+        end
+        """
+        |> Code.string_to_quoted!()
+        |> Mutator.walk([Muex.Mutator.StatementDeletion], %{file: "s.ex"})
+        |> Enum.reject(&Map.has_key?(&1, :function_complexity))
+
+      assert [_ | _] = mutations
+      assert [] = MutantOptimizer.filter_by_complexity(mutations, 2)
+    end
   end
 
   describe "optimize/2 with the balanced preset" do
