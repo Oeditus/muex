@@ -73,6 +73,7 @@ defmodule Muex.Mutator do
           optional(:original_ast) => term(),
           optional(:original_line) => non_neg_integer(),
           optional(:ast_path) => [non_neg_integer()],
+          optional(:function_complexity) => pos_integer(),
           optional(:equivalent) => boolean(),
           ast: term(),
           mutator: module(),
@@ -151,6 +152,11 @@ defmodule Muex.Mutator do
   # runtime value. Mutating them yields invalid mutants.
   @always_skip_calls [:use, :import, :alias, :require]
 
+  # Calls that define a function. Every mutation inside one records how much
+  # that function branches, which is what the optimizer's complexity filter
+  # measures.
+  @function_definitions [:def, :defp, :defmacro, :defmacrop]
+
   # Module attributes that carry documentation or typespecs rather than
   # runtime values. The whole attribute subtree is pruned.
   @skip_attributes [
@@ -212,7 +218,9 @@ defmodule Muex.Mutator do
     List of all mutations found in the AST. Each mutation is augmented with
     `:original_ast` (the matched node), `:original_line` (that node's own
     line) and `:ast_path` (that node's position in `ast`), all used
-    later during application.
+    later during application. A mutation inside a function definition also
+    carries `:function_complexity`, the complexity of that function, which
+    the optimizer's complexity filter reads.
   """
   @spec walk(ast :: term(), mutators :: [module()], context :: map()) :: [mutation()]
   def walk(ast, mutators, context) do
@@ -230,7 +238,7 @@ defmodule Muex.Mutator do
     if skip?(node, skip_calls) do
       []
     else
-      context = update_line(context, node)
+      context = context |> update_line(node) |> enter_function(node)
 
       mutate_node(node, mutators, context, path) ++
         collect_children(node, mutators, context, skip_calls, path)
@@ -261,7 +269,27 @@ defmodule Muex.Mutator do
     |> Map.put(:original_ast, node)
     |> Map.put(:original_line, Map.get(context, :line) || 0)
     |> Map.put(:ast_path, Enum.reverse(path))
+    |> put_function_complexity(context)
   end
+
+  # `:function_complexity` is how much the function around the node branches
+  # (`Muex.MutantOptimizer.complexity/1`), which the optimizer's complexity
+  # filter reads. A node outside any function, such as a module attribute,
+  # gets none.
+  defp put_function_complexity(mutation, %{function_complexity: complexity}),
+    do: Map.put(mutation, :function_complexity, complexity)
+
+  defp put_function_complexity(mutation, _context), do: mutation
+
+  # Entering a `def`, `defp`, `defmacro` or `defmacrop`: measure the whole
+  # definition, head and body. Each clause of a multi-clause function is its
+  # own definition and is measured on its own.
+  defp enter_function(context, {kind, _meta, [_head | _]} = definition)
+       when kind in @function_definitions do
+    Map.put(context, :function_complexity, Muex.MutantOptimizer.complexity(definition))
+  end
+
+  defp enter_function(context, _node), do: context
 
   # The position `steps` below `path`, with `steps` written root first.
   defp below(path, steps), do: Enum.reverse(steps, path)

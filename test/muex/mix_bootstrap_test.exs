@@ -6,8 +6,11 @@ defmodule Muex.MixBootstrapTest do
   @moduletag :tmp_dir
 
   setup do
-    # Every test loads a project into the global Mix.ProjectStack; clear it
-    # afterwards so one test's project cannot answer for the next.
+    # `mix test` leaves muex's own project on the global Mix.ProjectStack, and
+    # every test here loads one of its own. Clear it before and after each
+    # test, so neither muex's project nor another test's can answer for this
+    # one, whatever order the tests run in.
+    Mix.ProjectStack.clear_stack()
     on_exit(fn -> Mix.ProjectStack.clear_stack() end)
   end
 
